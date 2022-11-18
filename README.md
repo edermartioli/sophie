@@ -1,4 +1,4 @@
-# sophie
+# SOPHIE Tools
 Toolkit to analyze s1d spectra obtained with the SOPHIE instrument at OHP. 
 
 All the routines in this toolkit can be executed with the module `sophie_pipeline.py`. Here's an example to run the pipeline for a series of spectra obtained for the same object:
