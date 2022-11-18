@@ -29,6 +29,7 @@ parser = OptionParser()
 parser.add_option("-i", "--input", dest="input", help="Input spectral e.fits data pattern",type='string',default="*s1d_A.fits")
 parser.add_option("-m", "--ccfmask", dest="ccfmask", help="Input CCF mask",type='string',default="")
 parser.add_option("-n", "--object_name", dest="object_name", help="Object name",type='string',default="")
+parser.add_option("-f", action="store_true", dest="force_reduction", help="force reduction", default=False)
 parser.add_option("-v", action="store_true", dest="verbose", help="verbose", default=False)
 parser.add_option("-p", action="store_true", dest="plot", help="plot", default=False)
 
@@ -74,7 +75,8 @@ if options.object_name == "" :
 rv_file = "{}_sophie_ccf.rdb".format(object_name)
 command = "python {0}sophie_ccf_pipeline.py --input={1} --ccf_mask={2} --output_rv_file={3} {4} {5}".format(sophie_dir, options.input, options.ccfmask, rv_file, plot_flag, verbose_flag)
 print("Running: ",command)
-#os.system(command)
+if not os.path.exists(rv_file) or options.force_reduction :
+    os.system(command)
 
 #############################
 ##### RUN template ##########
@@ -82,7 +84,8 @@ print("Running: ",command)
 template_file = "{}_sophie_template.fits".format(object_name)
 command = "python {0}sophie_template.py --input={1} --rv_file={2} --output={3} {4} {5}".format(sophie_dir, options.input, rv_file, template_file, plot_flag, verbose_flag)
 print("Running: ",command)
-#os.system(command)
+if not os.path.exists(template_file) or options.force_reduction :
+    os.system(command)
 
 
 #############################
@@ -91,5 +94,6 @@ print("Running: ",command)
 sindex_file = "{}_sophie_sindex.txt".format(object_name)
 command = "python {0}sophie_sindex.py --input={1} --output={2} {3} {4}".format(sophie_dir, template_file, sindex_file, plot_flag, verbose_flag)
 print("Running: ",command)
-#os.system(command)
+if not os.path.exists(sindex_file) or options.force_reduction :
+    os.system(command)
 

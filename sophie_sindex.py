@@ -66,8 +66,6 @@ wl, flux, fluxerr, fluxes, fluxerrs = spectrallib.extract_spectral_feature(templ
 # run the routine sindex() to estimate the S-index from the template spectrum and to generate some pretty plots
 template_sindex = spectrallib.sindex(wl, flux, deltalamca=0.1, deltalamcont=1.0, lamh=393.368, lamk=396.849, lamv=390.107, lamr=400.107, verbose=False, plot=options.plot)
 
-exit()
-
 # run the s-index routine with Monte Carlo to obtain the posterior probability distributino for the values of the sindex
 template_sindex, template_sindexerr = spectrallib.sindex_montecarlo(wl, flux, fluxerr, deltalamca=0.1, deltalamcont=1.0, lamh=393.368, lamk=396.849, lamv=390.107, lamr=400.107, verbose=True, plot=options.plot)
 
@@ -89,9 +87,10 @@ if options.output != "":
 # Plot time series
 if options.plot :
     plt.errorbar(template["times"], sindex, yerr=sindexerr, fmt='o', color='k')
-    plt.hlines(template_sindex, template["times"][0], template["times"][-1], ls="-", lw=3, color="darkgreen", label="Template S-index = {:.4f}+/-{:.4f}".format(template_sindex,template_sindexerr))
-    plt.hlines(template_sindex+template_sindexerr, template["times"][0], template["times"][-1], ls="--", color="darkgreen")
-    plt.hlines(template_sindex-template_sindexerr, template["times"][0], template["times"][-1], ls="--", color="darkgreen")
+    plt.hlines(template_sindex, template["times"][0], template["times"][-1], ls="-", lw=3, color="darkgreen", label=r"Template S-index = {:.4f}$\pm${:.4f}".format(template_sindex,template_sindexerr))
+    
+    plt.fill_between(x=template["times"], y1=np.full_like(template["times"],template_sindex+template_sindexerr), y2=np.full_like(template["times"],template_sindex-template_sindexerr), color= "darkgreen",alpha= 0.3)
+
     plt.xlabel(r"BJD", fontsize=20)
     plt.ylabel(r"S-index", fontsize=20)
     plt.xticks(fontsize=18)
