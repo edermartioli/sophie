@@ -27,15 +27,12 @@ import os,sys
 import glob
 
 import matplotlib.pyplot as plt
-import reduc_lib
 import spectrallib
 
 import numpy as np
 
-sophie_ccf_dir = os.path.dirname(__file__)
-
 parser = OptionParser()
-parser.add_option("-i", "--input", dest="input", help="Spectral *s1d_A.fits data pattern",type='string',default="*.fits")
+parser.add_option("-i", "--input", dest="input", help="Input pectral data",type='string',default="")
 parser.add_option("-o", "--output", dest="output", help="Output s-index time series",type='string',default="")
 parser.add_option("-p", action="store_true", dest="plot", help="plot", default=False)
 parser.add_option("-v", action="store_true", dest="verbose", help="verbose", default=False)
@@ -43,11 +40,11 @@ parser.add_option("-v", action="store_true", dest="verbose", help="verbose", def
 try:
     options,args = parser.parse_args(sys.argv[1:])
 except:
-    print("Error: check usage with  -h sophie_spectral_analysis.py")
+    print("Error: check usage with  -h sophie_sindex.py")
     sys.exit(1)
 
 if options.verbose:
-    print('Spectral s1d_A.fits data pattern: ', options.input)
+    print('Input pectral data: ', options.input)
     if options.output != "":
         print('Output s-index time series: ', options.output)
 
@@ -61,7 +58,7 @@ template = spectrallib.read_template_product(options.input)
 #### START SPECTRAL ANALYS #######
 ##################################
 # extract fluxes within a certain spectral window and re-normalize data by a local continuum
-wl, flux, fluxerr, fluxes, fluxerrs = spectrallib.extract_spectral_feature(template, wlrange=[388.8,402.0], cont_ranges=[[388.8,391.5],[394.6379,395.6379],[399.0,402.0]], polyn_order=6, plot=options.plot)
+wl, flux, fluxerr, fluxes, fluxerrs = spectrallib.extract_spectral_feature(template, wlrange=[388.8,402.0], cont_ranges=[[388.8,391.5],[394.6379,395.6379],[399.0,402.0]], polyn_order=1, plot=options.plot)
 
 # run the routine sindex() to estimate the S-index from the template spectrum and to generate some pretty plots
 template_sindex = spectrallib.sindex(wl, flux, deltalamca=0.1, deltalamcont=1.0, lamh=393.368, lamk=396.849, lamv=390.107, lamr=400.107, verbose=False, plot=options.plot)
@@ -78,20 +75,20 @@ for i in range(len(fluxes)) :
     sindexerr = np.append(sindexerr,esidx)
 
     if options.verbose :
-        print("{:.8f} {:.4f} {:.4f}".format(template["times"][i], sidx, esidx))
+        print("Spectrum {}/{} -> BJD = {:.8f}  S-index = {:.4f} +/- {:.4f}".format(i+1, len(fluxes), template["times"][i], sidx, esidx))
 
 # Save s-index time series to output file
 if options.output != "":
-    spectrallib.save_time_series(options.output, template["times"], sindex, sindexerr)
+    spectrallib.save_time_series(options.output, template["times"]-2400000., sindex, sindexerr, xlabel="rjd", ylabel="sindex", yerrlabel="sindexerr", write_header_rows=True)
 
 # Plot time series
 if options.plot :
-    plt.errorbar(template["times"], sindex, yerr=sindexerr, fmt='o', color='k')
-    plt.hlines(template_sindex, template["times"][0], template["times"][-1], ls="-", lw=3, color="darkgreen", label=r"Template S-index = {:.4f}$\pm${:.4f}".format(template_sindex,template_sindexerr))
+    plt.errorbar(template["times"]-2400000., sindex, yerr=sindexerr, fmt='o', color='k')
+    plt.hlines(template_sindex, template["times"][0]-2400000., template["times"][-1]-2400000., ls="-", lw=3, color="darkgreen", label=r"Template S-index = {:.4f}$\pm${:.4f}".format(template_sindex,template_sindexerr))
     
-    plt.fill_between(x=template["times"], y1=np.full_like(template["times"],template_sindex+template_sindexerr), y2=np.full_like(template["times"],template_sindex-template_sindexerr), color= "darkgreen",alpha= 0.3)
+    plt.fill_between(x=template["times"]-2400000., y1=np.full_like(template["times"]-2400000.,template_sindex+template_sindexerr), y2=np.full_like(template["times"]-2400000.,template_sindex-template_sindexerr), color= "darkgreen",alpha= 0.3)
 
-    plt.xlabel(r"BJD", fontsize=20)
+    plt.xlabel(r"BJD-2400000", fontsize=20)
     plt.ylabel(r"S-index", fontsize=20)
     plt.xticks(fontsize=18)
     plt.yticks(fontsize=18)

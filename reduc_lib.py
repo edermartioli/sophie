@@ -24,6 +24,9 @@ from copy import deepcopy
 import matplotlib.pyplot as plt
 
 import astropy.io.fits as fits
+from astropy.time import Time, TimeDelta
+import astropy.units as u
+from astropy.coordinates import SkyCoord, EarthLocation, AltAz
 
 from scipy import constants
 
@@ -41,10 +44,16 @@ import scipy.signal as sig
 import ccf_lib
 #import ccf2rv
 
-def load_array_of_sophie_spectra(inputdata, rvfile="", apply_berv=True, silent=True, plot=False, verbose=False) :
+def load_array_of_sophie_spectra(inputdata, rvfile="", apply_berv=True, silent=True, obslog="", plot=False, verbose=False) :
 
     loc = {}
     loc["input"] = inputdata
+
+    if obslog != "" :
+        loc["obslog"] = obslog
+        outfile = open(obslog,"w+")
+        outfile.write("file\tobject\tbjd\tsnr\texptime\tberv\tairmass\n")
+        outfile.write("----\t----\t----\t----\t----\t----\t----\n")
 
     if silent :
         import warnings
@@ -93,10 +102,16 @@ def load_array_of_sophie_spectra(inputdata, rvfile="", apply_berv=True, silent=T
         spectrum['DATE'] = hdr['HIERARCH OHP OBS DATE START']
         spectrum['BJD'] = hdr['HIERARCH OHP DRS BJD']
         spectrum['BERV'] = hdr['HIERARCH OHP DRS BERV']
-        spectrum['AIRMASS'] = np.nan
+        
+        ra, dec = "{:.3f}".format(hdr['HIERARCH OHP TARG ALPHA']), "{:.3f}".format(hdr['HIERARCH OHP TARG DELTA'])
+        ra_str = "{}:{}:{}".format(ra[:-8],ra[-8:-6],ra[-6:])
+        dec_str = "{}:{}:{}".format(dec[:-8],dec[-8:-6],dec[-6:])
+        equinox = "J{:.1f}".format(hdr['HIERARCH OHP TARG EQUINOX'])
+        
+        #spectrum['AIRMASS'] = np.nan
+        spectrum['AIRMASS'] = calculate_airmass(spectrum['BJD'], ra=ra_str, dec=dec_str, equinox=equinox, latitude=+43.92944, longitude=+5.7125, altitude=714)
         spectrum['EXPTIME'] = hdr['HIERARCH OHP CCD DKTM']
         spectrum['SNR'] = hdr['HIERARCH OHP DRS CAL EXT SN36']
-        
         
         hdr['MJDATE'] = spectrum['BJD'] -  2400000.5
         hdr['DATE'] = hdr['HIERARCH OHP OBS DATE START']
@@ -111,6 +126,9 @@ def load_array_of_sophie_spectra(inputdata, rvfile="", apply_berv=True, silent=T
             snr.append(spectrum['SNR'])
             airmass.append(spectrum['AIRMASS'])
             berv.append(spectrum['BERV'])
+
+        if obslog != "" :
+            outfile.write("{}\t{}\t{:.8f}\t{:.2f}\t{:.1f}\t{:.5f}\t{:.3f}\n".format(os.path.basename(inputdata[i]),spectrum['OBJECT'].replace(" ",""),spectrum['BJD'],spectrum['SNR'],spectrum['EXPTIME'],spectrum['BERV'],spectrum['AIRMASS']))
 
         if verbose :
             print("Spectrum ({0}/{1}): {2} OBJ={3} BJD={4:.6f} SNR={5:.1f} EXPTIME={6:.0f}s BERV={7:.3f} km/s".format(i+1,len(inputdata),inputdata[i],spectrum['OBJECT'],spectrum['BJD'],spectrum['SNR'],spectrum['EXPTIME'],spectrum['BERV']))
@@ -152,23 +170,190 @@ def load_array_of_sophie_spectra(inputdata, rvfile="", apply_berv=True, silent=T
         
         fig, axs = plt.subplots(3, sharex=True)
         fig.suptitle('{} spectra of {}'.format(len(inputdata), objectname))
-        axs[0].plot(bjd, snr, '-', color="orange",label="SNR")
+        axs[0].plot(bjd-2400000, snr, 'o', color="orange",label="SNR")
         axs[0].set_ylabel('SNR')
         axs[0].legend()
 
-        axs[1].plot(bjd, airmass, '--', color="olive",label="Airmass")
+        axs[1].plot(bjd-2400000, airmass, 'o', color="olive",label="Airmass")
         axs[1].set_ylabel('Airmass')
         axs[1].legend()
 
-        axs[2].plot(bjd, berv, ':', color="darkblue",label="BERV")
-        axs[2].set_xlabel('BJD')
+        axs[2].plot(bjd-2400000, berv, 'o', color="darkblue",label="BERV")
+        axs[2].set_xlabel('BJD-2400000')
         axs[2].set_ylabel('BERV [km/s]')
         axs[2].legend()
         
         plt.show()
     
+    if obslog != "" :
+        outfile.close()
+    
     return loc
 
+
+def load_array_of_sophie_e2ds_spectra(inputdata, order=0, rvfile="", apply_berv=True, silent=True, obslog="", plot=False, verbose=False) :
+
+    loc = {}
+    loc["input"] = inputdata
+
+    if obslog != "" :
+        loc["obslog"] = obslog
+        outfile = open(obslog,"w+")
+        outfile.write("file\tobject\tbjd\tsnr\texptime\tberv\tairmass\n")
+        outfile.write("----\t----\t----\t----\t----\t----\t----\n")
+
+    if silent :
+        import warnings
+        warnings.filterwarnings("ignore", category=RuntimeWarning)
+    
+    if rvfile == "":
+        #print("WARNING: RV file has not been provided ...")
+        #print("*** Setting all source RVs equal to zero ***")
+        rvbjds, rvs, rverrs = np.zeros(len(inputdata)), np.zeros(len(inputdata)), np.zeros(len(inputdata))
+    else :
+        loc["rvfile"] = rvfile
+
+        if verbose :
+            print("Reading RVs from file:",rvfile)
+        
+        rvbjds, rvs, rverrs = read_rv_time_series(rvfile, out_in_mps=False)
+
+        if len(rvs) != len(inputdata):
+            if verbose :
+                print("WARNING: size of RVs is different than number of input *t.fits files")
+                print("*** Ignoring input RVs and setting all source RVs equal to zero ***")
+            rvbjds, rvs, rverrs = np.zeros(len(inputdata)), np.zeros(len(inputdata)), np.zeros(len(inputdata))
+    #---
+    loc["source_rv"] = np.nanmedian(rvs)
+
+    spectra = []
+    speed_of_light_in_kps = constants.c / 1000.
+
+    if plot :
+        bjd, snr, airmass, berv = [], [], [], []
+
+    for i in range(len(inputdata)) :
+        
+        spectrum = sophielib.load_order_of_e2ds_spectrum(inputdata[i],order=order)
+        
+        # set source RVs
+        spectrum['FILENAME'] = inputdata[i]
+        spectrum["source_rv"] = rvs[i]
+        spectrum["rvfile"] = rvfile
+        spectrum['RV'] = rvs[i]
+        spectrum['RVERR'] = rverrs[i]
+
+        hdr = spectrum["header"]
+        
+        spectrum['OBJECT'] = hdr['HIERARCH OHP TARG NAME']
+        spectrum['DATE'] = hdr['HIERARCH OHP OBS DATE START']
+        spectrum['BJD'] = hdr['HIERARCH OHP DRS BJD']
+        spectrum['BERV'] = hdr['HIERARCH OHP DRS BERV']
+        
+        ra, dec = "{:.3f}".format(hdr['HIERARCH OHP TARG ALPHA']), "{:.3f}".format(hdr['HIERARCH OHP TARG DELTA'])
+        ra_str = "{}:{}:{}".format(ra[:-8],ra[-8:-6],ra[-6:])
+        dec_str = "{}:{}:{}".format(dec[:-8],dec[-8:-6],dec[-6:])
+        equinox = "J{:.1f}".format(hdr['HIERARCH OHP TARG EQUINOX'])
+        
+        #spectrum['AIRMASS'] = np.nan
+        spectrum['AIRMASS'] = calculate_airmass(spectrum['BJD'], ra=ra_str, dec=dec_str, equinox=equinox, latitude=+43.92944, longitude=+5.7125, altitude=714)
+        spectrum['EXPTIME'] = hdr['HIERARCH OHP CCD DKTM']
+        spectrum['SNR'] = hdr['HIERARCH OHP DRS CAL EXT SN36']
+        
+        hdr['MJDATE'] = spectrum['BJD'] -  2400000.5
+        hdr['DATE'] = hdr['HIERARCH OHP OBS DATE START']
+        hdr['OBJECT'] = hdr['HIERARCH OHP TARG NAME']
+        hdr['BJD'] = hdr['HIERARCH OHP DRS BJD']
+        hdr['SNR'] = hdr['HIERARCH OHP DRS CAL EXT SN36']
+
+        if plot :
+            if i == 0 :
+                objectname = spectrum['OBJECT']
+            bjd.append(spectrum['BJD'])
+            snr.append(spectrum['SNR'])
+            airmass.append(spectrum['AIRMASS'])
+            berv.append(spectrum['BERV'])
+
+        if obslog != "" :
+            outfile.write("{}\t{}\t{:.8f}\t{:.2f}\t{:.1f}\t{:.5f}\t{:.3f}\n".format(os.path.basename(inputdata[i]),spectrum['OBJECT'].replace(" ",""),spectrum['BJD'],spectrum['SNR'],spectrum['EXPTIME'],spectrum['BERV'],spectrum['AIRMASS']))
+
+        if verbose :
+            print("Spectrum ({0}/{1}): {2} OBJ={3} BJD={4:.6f} SNR={5:.1f} EXPTIME={6:.0f}s BERV={7:.3f} km/s".format(i+1,len(inputdata),inputdata[i],spectrum['OBJECT'],spectrum['BJD'],spectrum['SNR'],spectrum['EXPTIME'],spectrum['BERV']))
+
+        vel_shift = spectrum['RV']
+        if apply_berv :
+            vel_shift = spectrum['RV'] - spectrum['BERV']
+        
+        wl = deepcopy(spectrum["wl"])
+        
+        wlc = 0.5 * (wl[0] + wl[-1])
+
+        # relativistic calculation
+        wl_stellar_frame = wl * np.sqrt((1-vel_shift/speed_of_light_in_kps)/(1+vel_shift/speed_of_light_in_kps))
+        
+        #wl_stellar_frame = wl / (1.0 + vel_shift / speed_of_light_in_kps)
+        vel = speed_of_light_in_kps * ( wl_stellar_frame / wlc - 1.)
+
+        spectrum['wl_sf'] = wl_stellar_frame
+        spectrum['vels'] = vel
+        
+        #keep = (wl>655) & (wl<658)
+        ##plt.plot(wl[keep],spectrum['flux'][keep])
+        #plt.plot(wl_stellar_frame[keep],spectrum['flux'][keep])
+
+        spectra.append(spectrum)
+        
+    #plt.show()
+    #exit()
+    
+    loc["spectra"] = spectra
+
+    if plot :
+        bjd = np.array(bjd)
+        snr = np.array(snr)
+        airmass = np.array(airmass)
+        berv = np.array(berv)
+        
+        fig, axs = plt.subplots(3, sharex=True)
+        fig.suptitle('{} spectra of {}'.format(len(inputdata), objectname))
+        axs[0].plot(bjd-2400000, snr, 'o', color="orange",label="SNR")
+        axs[0].set_ylabel('SNR')
+        axs[0].legend()
+
+        axs[1].plot(bjd-2400000, airmass, 'o', color="olive",label="Airmass")
+        axs[1].set_ylabel('Airmass')
+        axs[1].legend()
+
+        axs[2].plot(bjd-2400000, berv, 'o', color="darkblue",label="BERV")
+        axs[2].set_xlabel('BJD-2400000')
+        axs[2].set_ylabel('BERV [km/s]')
+        axs[2].legend()
+        
+        plt.show()
+    
+    if obslog != "" :
+        outfile.close()
+    
+    return loc
+
+
+
+
+
+def calculate_airmass(bjd, ra, dec, equinox=2000., latitude=+43.92944, longitude=+5.7125, altitude=714) :
+
+    observatory_location = EarthLocation.from_geodetic(lat=latitude, lon=longitude, height=altitude)
+    
+    # set obstime
+    obstime = Time(bjd, format='jd', scale='utc', location=observatory_location)
+
+    # set source observed
+    source = SkyCoord(ra, dec, unit=(u.hourangle, u.deg), frame='icrs', equinox=equinox)
+
+    airmass = source.transform_to(AltAz(obstime=obstime,location=observatory_location)).secz
+
+    return airmass
+    
 
 def get_wlmin_wlmax(spectra) :
 
@@ -283,6 +468,103 @@ def get_spectral_data(array_of_spectra, ref_index=0, verbose=False) :
     return loc
 
 
+def append_order(spectra, order_spectra, wave_knot=None) :
+
+    waves, waves_sf, vels = [], [], []
+    fluxes, fluxerrs = [], []
+    
+    for i in range(spectra['nspectra']) :
+        keep = spectra["waves"][i] <= wave_knot
+        
+        waves.append(spectra["waves"][i][keep])
+        waves_sf.append(spectra["waves_sf"][i][keep])
+        vels.append(spectra["vels"][i][keep])
+        fluxes.append(spectra["fluxes"][i][keep])
+        fluxerrs.append(spectra["fluxerrs"][i][keep])
+    
+    keep_common = spectra["common_wl"] <= wave_knot
+    
+    common_wl = spectra["common_wl"][keep_common]
+    common_vel = spectra["common_vel"][keep_common]
+    
+    aligned_waves = []
+    sf_fluxes, sf_fluxerrs = [], []
+    rest_fluxes, rest_fluxerrs = [], []
+    
+    for i in range(spectra['nspectra']) :
+        aligned_waves.append(spectra["aligned_waves"][i][keep_common])
+        sf_fluxes.append(spectra["sf_fluxes"][i][keep_common])
+        sf_fluxerrs.append(spectra["sf_fluxerrs"][i][keep_common])
+        rest_fluxes.append(spectra["rest_fluxes"][i][keep_common])
+        rest_fluxerrs.append(spectra["rest_fluxerrs"][i][keep_common])
+
+    # From here on we will append the order spectra
+    #----------------------------------------------
+    
+    keep_common = order_spectra["common_wl"] >= wave_knot
+
+    common_wl = np.append(common_wl,order_spectra["common_wl"][keep_common])
+    common_vel = np.append(common_vel,order_spectra["common_vel"][keep_common])
+
+    for i in range(spectra['nspectra']) :
+        keep = order_spectra["waves"][i] >= wave_knot
+        
+        waves[i] = np.append(waves[i],order_spectra["waves"][i][keep])
+        waves_sf[i] = np.append(waves_sf[i],order_spectra["waves_sf"][i][keep])
+        vels[i] = np.append(vels[i],order_spectra["vels"][i][keep])
+        fluxes[i] = np.append(fluxes[i],order_spectra["fluxes"][i][keep])
+        fluxerrs[i] = np.append(fluxerrs[i],order_spectra["fluxerrs"][i][keep])
+
+        aligned_waves[i] = np.append(aligned_waves[i],order_spectra["aligned_waves"][i][keep_common])
+        sf_fluxes[i] = np.append(sf_fluxes[i],order_spectra["sf_fluxes"][i][keep_common])
+        sf_fluxerrs[i] = np.append(sf_fluxerrs[i],order_spectra["sf_fluxerrs"][i][keep_common])
+        rest_fluxes[i] = np.append(rest_fluxes[i],order_spectra["rest_fluxes"][i][keep_common])
+        rest_fluxerrs[i] = np.append(rest_fluxerrs[i],order_spectra["rest_fluxerrs"][i][keep_common])
+
+    # save window function
+    if "windows" in spectra.keys() and "windows" in order_spectra.keys():
+        windows = spectra["windows"]
+        for i in range(len(order_spectra["windows"])) :
+            windows.append(order_spectra["windows"][i])
+        spectra["windows"] = windows
+        
+    spectra["waves"] = waves
+    spectra["waves_sf"] = waves_sf
+    spectra["vels"] = vels
+    spectra["fluxes"] = fluxes
+    spectra["fluxerrs"] = fluxerrs
+    
+    spectra["common_wl"] = common_wl
+    spectra["common_vel"] = common_vel
+    spectra["aligned_waves"] = aligned_waves
+    spectra["sf_fluxes"] = sf_fluxes
+    spectra["sf_fluxerrs"] = sf_fluxerrs
+    spectra["rest_fluxes"] = rest_fluxes
+    spectra["rest_fluxerrs"] = rest_fluxerrs
+
+    spectra = get_wlmin_wlmax(spectra)
+
+    return spectra
+    
+    
+def get_headers(inputdata) :
+
+    headers = []
+    for i in range(len(inputdata)) :
+        
+        hdr = fits.getheader(inputdata[i],0)
+
+        hdr['MJDATE'] = hdr['HIERARCH OHP DRS BJD'] -  2400000.5
+        hdr['DATE'] = hdr['HIERARCH OHP OBS DATE START']
+        hdr['OBJECT'] = hdr['HIERARCH OHP TARG NAME']
+        hdr['BJD'] = hdr['HIERARCH OHP DRS BJD']
+        hdr['SNR'] = hdr['HIERARCH OHP DRS CAL EXT SN36']
+        
+        headers.append(hdr)
+        
+    return headers
+
+    
 def get_gapfree_windows(spectra, max_vel_distance=3.0, min_window_size=120., fluxkey="fluxes", velkey="vels", wavekey="waves", verbose=False) :
     
     windows = []

@@ -24,6 +24,20 @@ from astropy.io import fits
 from scipy import signal
 import scipy.interpolate as sint
 from copy import deepcopy
+import warnings
+
+def sophie_order_limits() :
+    order_limits = [388.600,393.617,398.046,402.655,
+                    407.274,412.332,417.025,422.204,
+                    427.587,433.052,438.122,443.875,
+                    449.941,455.761,461.769,468.251,
+                    474.594,481.484,487.854,494.826,
+                    502.598,510.073,517.509,524.799,
+                    533.323,540.436,549.862,559.032,
+                    567.650,577.688,587.458,597.984,
+                    608.643,619.317,630.540,642.296,
+                    654.603,667.356,680.708]
+    return order_limits
 
 def load_spectrum(filename) :
 
@@ -50,6 +64,95 @@ def load_spectrum(filename) :
     
     return spectrum
 
+
+def get_wave(hdr, use_angstrom=False) :
+
+    ordersize = hdr["NAXIS1"]
+    norders = hdr["NAXIS2"]
+
+    gorder = hdr["HIERARCH OHP DRS CAL TH GUESS ORDER"]
+
+    x = np.arange(ordersize)
+    
+    ncoeffs = hdr['HIERARCH OHP DRS CAL TH DEG LL'] + 1
+
+    order_wl = []
+    
+    for i in range(gorder+2) :
+    
+        coeffs = np.zeros_like(np.arange(ncoeffs),dtype=float)
+        
+        for j in range(ncoeffs) :
+            if i == 0 :
+                coeffs[ncoeffs-1-j] = hdr['HIERARCH OHP DRS CAL TH COEFF LL{:00d}'.format(j)]
+            else :
+                coeffs[ncoeffs-1-j] = hdr['HIERARCH OHP DRS CAL TH COEFF LL{:00d}{:00d}'.format(i,j)]
+        #order = i*2
+        ll = np.poly1d(coeffs)
+        order_wl.append(ll(x))
+        
+        if i < gorder+1 :
+            for j in range(ncoeffs) :
+                if i == 0 :
+                    coeffs[ncoeffs-1-j] = hdr['HIERARCH OHP DRS CAL TH COEFF LL{:00d}'.format(j+ncoeffs)]
+                else :
+                    coeffs[ncoeffs-1-j] = hdr['HIERARCH OHP DRS CAL TH COEFF LL{:00d}{:00d}'.format(i,j+ncoeffs)]
+    
+            ll = np.poly1d(coeffs)
+            order_wl.append(ll(x))
+            
+    order_wl = np.array(order_wl)
+    
+    if use_angstrom :
+        return order_wl
+    else :
+        return order_wl / 10
+
+    
+def load_e2ds_spectrum(filename) :
+
+    spectrum = {}
+    
+    hdu = fits.open(filename)
+    hdr = hdu[0].header
+    
+    spectrum["header"] = deepcopy(hdr)
+
+    flux = hdu[0].data
+    wl = get_wave(hdr)
+ 
+    for order in range(len(wl)) :
+        plt.plot(wl[order],flux[order])
+    plt.show()
+    
+    exit()
+ 
+    spectrum["wl"] = wl
+    spectrum["flux"] = flux
+    spectrum["fluxerr"] = np.sqrt(flux)
+    
+    hdu.close()
+    
+    return spectrum
+
+def load_order_of_e2ds_spectrum(filename, order=0) :
+    spectrum = {}
+    
+    hdu = fits.open(filename)
+    hdr = hdu[0].header
+    
+    spectrum["header"] = deepcopy(hdr)
+
+    flux = deepcopy(hdu[0].data[order])
+    wl = get_wave(hdr)[order]
+ 
+    spectrum["wl"] = wl
+    spectrum["flux"] = flux
+    spectrum["fluxerr"] = np.sqrt(flux)
+    
+    hdu.close()
+    
+    return spectrum
 
 def write_spectrum_to_fits(waves, fluxes, fluxerrs, filename, header=None):
     """

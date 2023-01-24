@@ -11,12 +11,11 @@
     
     Simple usage example:
     
-    python -W"ignore"  /Volumes/Samsung_T5/Science/sophie/sophie_ccf_pipeline.py --ccf_mask=/Volumes/Samsung_T5/Science/sophie/masks/G2_nm.mas --input=*e2ds_A.fits -pv
+    python /Volumes/Samsung_T5/Science/sophie/sophie_ccf_pipeline.py --ccf_mask=/Volumes/Samsung_T5/Science/sophie/masks/G2_nm.mas --input=*s1d_A.fits -pv
 
-    python -W"ignore"  /Volumes/Samsung_T5/Science/sophie/sophie_ccf_pipeline.py --ccf_mask=/Volumes/Samsung_T5/Science/sophie/masks/G2_nm.mas --input=SOPHIE.2021-0*e2ds_A.fits -pv
+    python /Volumes/Samsung_T5/Science/sophie/sophie_ccf_pipeline.py --ccf_mask=/Volumes/Samsung_T5/Science/sophie/masks/G2_nm.mas --input=SOPHIE.2021-0*s1d_A.fits -pv
     
-    python -W"ignore"  /Volumes/Samsung_T5/Science/sophie/sophie_ccf_pipeline.py --ccf_mask=/Volumes/Samsung_T5/Science/sophie/masks/G2_nm.mas --input=SOPHIE*e2ds_A.fits --output_rv_file=TOI-1736_sophie_ccfrv.rdb --output_bis_file=TOI-1736_sophie_ccfbis.rdb --output_fwhm_file=TOI-1736_sophie_ccffwhm.rdb -pv
-
+    python /Volumes/Samsung_T5/Science/sophie/sophie_ccf_pipeline.py --ccf_mask=/Volumes/Samsung_T5/Science/sophie/masks/G2_nm.mas --input=SOPHIE*s1d_A.fits --output_rv_file=TOI-1736_sophie_ccfrv.rdb --output_bis_file=TOI-1736_sophie_ccfbis.rdb --output_fwhm_file=TOI-1736_sophie_ccffwhm.rdb -pv
     """
 
 __version__ = "1.0"
@@ -29,6 +28,7 @@ from optparse import OptionParser
 import os,sys
 import glob
 
+
 import matplotlib.pyplot as plt
 import sophielib
 import reduc_lib
@@ -40,9 +40,8 @@ import spectrallib
 
 sophie_ccf_dir = os.path.dirname(__file__)
 
-
 parser = OptionParser()
-parser.add_option("-i", "--input", dest="input", help="Spectral *e2ds_A.fits data pattern",type='string',default="*e2ds_A.fits")
+parser.add_option("-i", "--input", dest="input", help="Spectral *s1d_A.fits data pattern",type='string',default="*.fits")
 parser.add_option("-m", "--ccf_mask", dest="ccf_mask", help="Input CCF mask",type='string',default="")
 parser.add_option("-o", "--output_template", dest="output_template", help="Output template spectrum",type='string',default="")
 parser.add_option("-t", "--output_rv_file", dest="output_rv_file", help="Output RV file (rdb format)",type='string',default="")
@@ -82,58 +81,32 @@ max_gap_size = 1.0
 min_window_size = 150.
 vel_sampling = 0.5
 verbose = options.verbose
-norders = 39
 
-spectra = None
+# First load spectra into a container
+array_of_spectra = reduc_lib.load_array_of_sophie_spectra(inputdata, obslog=options.output_obslog_file, apply_berv=False, plot=options.plot, verbose=verbose)
 
-headers = reduc_lib.get_headers(inputdata)
+# Then load data into vector
+spectra = reduc_lib.get_spectral_data(array_of_spectra, verbose=verbose)
 
-for order in range(norders) :
+# Use wide values to avoid too much clipping at this point. This will improve the noise model
+#spectra = reduc_lib.get_gapfree_windows(spectra, max_vel_distance=max_gap_size, min_window_size=min_window_size, fluxkey="fluxes", wavekey="waves_sf", verbose=verbose)
 
-    if order == 0 :
-        obslog_file = options.output_obslog_file
-        locverbose = options.verbose
-        locplot = options.plot
-    else :
-        obslog_file = ""
-        locverbose = False
-        locplot = ""
+# Set a common wavelength grid for all input spectra
+spectra = reduc_lib.set_common_wl_grid(spectra, vel_sampling=vel_sampling, verbose=verbose)
 
-    if options.verbose :
-        print("Processing order {} of {} ".format(order+1, norders))
+# Interpolate all spectra to a common wavelength grid
+spectra = reduc_lib.resample_and_align_spectra(spectra, verbose=verbose, plot=False)
+#spectra["aligned_waves"]
+#spectra["sf_fluxes"],spectra["sf_fluxerrs"]
+#spectra["rest_fluxes"], spectra["rest_fluxerrs"]
 
-    # First load spectra into a container
-    array_of_order_spectra = reduc_lib.load_array_of_sophie_e2ds_spectra(inputdata, order=order,  rvfile="", apply_berv=True, silent=True, obslog=obslog_file, plot=locplot, verbose=locverbose)
+spectra, template = reduc_lib.reduce_spectra(spectra, nsig_clip=5.0, combine_by_median=True, subtract=True, fluxkey="rest_fluxes", fluxerrkey="rest_fluxerrs", wavekey="common_wl", update_spectra=True, plot=False, verbose=True)
 
-    # Then load data into vector
-    order_spectra = reduc_lib.get_spectral_data(array_of_order_spectra, verbose=False)
+#spectra, template = reduc_lib.normalize_spectra(spectra, template, fluxkey="rest_fluxes", fluxerrkey="rest_fluxerrs", cont_function='spline3', polyn_order=40, med_filt=1, plot=True)
+spectra, template = reduc_lib.normalize_spectra(spectra, template, fluxkey="rest_fluxes", fluxerrkey="rest_fluxerrs", cont_function='spline3', polyn_order=40, plot=False)
 
-    # Set a common wavelength grid for all input spectra
-    order_spectra = reduc_lib.set_common_wl_grid(order_spectra, vel_sampling=vel_sampling, verbose=False)
-
-    # Interpolate all spectra to a common wavelength grid
-    order_spectra = reduc_lib.resample_and_align_spectra(order_spectra, verbose=False, plot=False)
-    #order_spectra["aligned_waves"]
-    #order_spectra["sf_fluxes"],spectra["sf_fluxerrs"]
-    #order_spectra["rest_fluxes"], spectra["rest_fluxerrs"]
-
-    order_spectra, order_template = reduc_lib.reduce_spectra(order_spectra, nsig_clip=5.0, combine_by_median=True, subtract=True, fluxkey="sf_fluxes", fluxerrkey="sf_fluxerrs", wavekey="common_wl", update_spectra=True, plot=False, verbose=False)
-
-    #order_spectra, template = reduc_lib.normalize_spectra(order_spectra, order_template, fluxkey="rest_fluxes", fluxerrkey="rest_fluxerrs", cont_function='spline3', polyn_order=40, med_filt=1, plot=True)
-    order_spectra, order_template = reduc_lib.normalize_spectra(order_spectra, order_template, fluxkey="sf_fluxes", fluxerrkey="sf_fluxerrs", cont_function='polynomial', polyn_order=4, plot=False)
-
-    if order == 0 :
-        spectra = order_spectra
-    else :
-        spectra = reduc_lib.append_order(spectra, deepcopy(order_spectra), wave_knot=sophielib.sophie_order_limits()[order])
-
-    del order_spectra
-    del array_of_order_spectra
-    
-    #plt.plot(order_template["wl"], order_template["flux"],'.')
-
-# Calculate template for all orders merged together
-spectra, template = reduc_lib.reduce_spectra(spectra, nsig_clip=5.0, combine_by_median=True, subtract=True, fluxkey="sf_fluxes", fluxerrkey="sf_fluxerrs", wavekey="common_wl", update_spectra=True, plot=False, verbose=True)
+#plt.plot(template["wl"], template["flux"],'-')
+#plt.show()
 
 # Calculate statistical weights based on the time series dispersion 1/sig^2
 spectra = reduc_lib.calculate_weights(spectra, template, use_err_model=False, plot=False)
@@ -155,8 +128,8 @@ ccf_params = ccf_lib.set_ccf_params(ccf_mask)
 ccf_params["CCF_WIDTH"] = float(ccf_width)
 
 ccfmask = ccf_lib.apply_weights_to_ccf_mask(ccf_params, template["wl"], template["flux"], template["fluxerr"], spectra["weights"], median=True, remove_lines_with_nans=True, source_rv=source_rv, verbose=False, plot=False)
-
-base_header = deepcopy(headers[0])
+    
+base_header = deepcopy(array_of_spectra["spectra"][0]["header"])
 
 template_ccf = ccf_lib.run_ccf_eder(ccf_params, template["wl"], template["flux"], base_header, ccfmask, targetrv=source_rv, normalize_ccfs=True, plot=False, verbose=False)
 
@@ -181,7 +154,7 @@ if output_template != "" :
 save_output = True
 normalize_ccfs = True
 run_analysis = True
-fluxkey="sf_fluxes"
+fluxkey="rest_fluxes"
 waveskey="aligned_waves"
 plot = options.plot
 
@@ -207,7 +180,7 @@ for i in range(spectra['nspectra']) :
     fluxes, waves_sf = spectra[fluxkey][i], spectra[waveskey][i]
 
     # run main routine to process ccf on science fiber
-    header = headers[i]
+    header = array_of_spectra["spectra"][i]["header"]
 
     output_ccf_filename = ""
     if options.saveccfs :

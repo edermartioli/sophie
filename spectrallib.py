@@ -208,14 +208,6 @@ def sindex(wl, flux, deltalamca=0.1, deltalamcont=1.0, lamh=393.368, lamk=396.84
     if plot :
         plt.plot(wl,flux,"-",lw=0.7, color="k", zorder=0.5, label="spectrum")
 
-        #plt.errorbar(wl[contr],flux[contr],yerr=fluxerr[contr],fmt=".", color="darkgreen", alpha=0.7, label="Continuum r")
-        plt.plot(wl[contr], flux[contr], ".", color="olive", alpha=0.7)
-        plt.fill_between(x=wl[contr], y1=np.ones_like(flux[contr]), y2=np.zeros_like(flux[contr]), color= "olive",alpha=0.2, label="Cont R")
-        
-        #plt.errorbar(wl[contv],flux[contv],yerr=fluxerr[contv],fmt=".", color="darkgreen", alpha=0.7, label="Continuum v")
-        plt.plot(wl[contv],flux[contv],".", color="darkgreen", alpha=0.7)
-        plt.fill_between(x=wl[contv], y1=np.ones_like(flux[contv]), y2=np.zeros_like(flux[contv]), color= "darkgreen",alpha=0.2, label="Cont V")
-
         #plt.errorbar(wl[lineh],flux[lineh],yerr=fluxerr[lineh],fmt=".", color="darkred", alpha=0.7, label="Ca II H")
         plt.plot(wl[lineh],flux[lineh],".", color="darkblue", alpha=0.7)
         plt.fill_between(x=wl[lineh], y1=triagband_h/np.max(triagband_h), y2=np.zeros_like(flux[lineh]), color= "darkblue",alpha= 0.2, label="Ca II H")
@@ -223,6 +215,14 @@ def sindex(wl, flux, deltalamca=0.1, deltalamcont=1.0, lamh=393.368, lamk=396.84
         #plt.errorbar(wl[linek],flux[linek],yerr=fluxerr[linek],fmt=".", color="darkblue", alpha=0.7, label="Ca II K")
         plt.plot(wl[linek],flux[linek],".", color="darkred", alpha=0.7)
         plt.fill_between(x=wl[linek], y1=triagband_k/np.max(triagband_k), y2=np.zeros_like(flux[linek]), color= "darkred",alpha= 0.2, label="Ca II K")
+
+        #plt.errorbar(wl[contv],flux[contv],yerr=fluxerr[contv],fmt=".", color="darkgreen", alpha=0.7, label="Continuum v")
+        plt.plot(wl[contv],flux[contv],".", color="darkgreen", alpha=0.7)
+        plt.fill_between(x=wl[contv], y1=np.ones_like(flux[contv]), y2=np.zeros_like(flux[contv]), color= "darkgreen",alpha=0.2, label="Cont V")
+
+        #plt.errorbar(wl[contr],flux[contr],yerr=fluxerr[contr],fmt=".", color="darkgreen", alpha=0.7, label="Continuum r")
+        plt.plot(wl[contr], flux[contr], ".", color="olive", alpha=0.7)
+        plt.fill_between(x=wl[contr], y1=np.ones_like(flux[contr]), y2=np.zeros_like(flux[contr]), color= "olive",alpha=0.2, label="Cont R")
 
         plt.legend(fontsize=16)
         plt.xlabel(r"$\lambda$ [nm]", fontsize=22)
@@ -235,7 +235,6 @@ def sindex(wl, flux, deltalamca=0.1, deltalamcont=1.0, lamh=393.368, lamk=396.84
         print("Sindex={:.4f}".format(sindex))
     
     return sindex
-
 
 
 def sindex_montecarlo(wl, flux, fluxerr, deltalamca=0.1, deltalamcont=1.0, lamh=393.368, lamk=396.849, lamv=390.107, lamr=400.107, nsamples=1000, verbose=False, plot=False) :
@@ -290,6 +289,225 @@ def sindex_montecarlo(wl, flux, fluxerr, deltalamca=0.1, deltalamcont=1.0, lamh=
 
     return sindex, sindexerr
 
+
+
+def activity_index(wl, flux, wl_lines=[656.28], delta_wl_lines=[0.15], wl_conts=[655.087,658.031], delta_wl_conts=[1.075,0.875], line_label="H-alpha", verbose=False, plot=False) :
+    
+    index_value = np.nan
+
+    cont = np.full_like(wl, False, dtype=bool)
+    cont_masks = []
+    
+    for i in range(len(wl_conts)) :
+        contmask = (wl > wl_conts[i]-delta_wl_conts[i]/2) & (wl < wl_conts[i]+delta_wl_conts[i]/2)
+        cont_masks.append(contmask)
+        cont ^= contmask
+        
+    line = np.full_like(wl, False, dtype=bool)
+    line_masks = []
+    for i in range(len(wl_lines)) :
+        linemask = (wl > wl_lines[i]-delta_wl_lines[i]/2) & (wl < wl_lines[i]+delta_wl_lines[i]/2)
+        line_masks.append(linemask)
+        line ^= linemask
+        
+    fluxline = np.nanmean(flux[line])
+    fluxcont = np.nanmean(flux[cont])
+
+    index_value = (fluxline)/(fluxcont)
+
+    if plot :
+        plt.plot(wl,flux,"-",lw=0.7, color="k", zorder=0.5, label="spectrum")
+
+        plt.plot(wl[line],flux[line],".", color="darkblue", alpha=0.7, label="{}".format(line_label))
+        for i in range(len(wl_lines)) :
+            plt.fill_between(x=wl[line_masks[i]], y1=np.ones_like(flux[line_masks[i]]), y2=np.zeros_like(flux[line_masks[i]]), color= "darkblue",alpha= 0.2)
+
+        plt.plot(wl[cont],flux[cont],".", color="darkgreen", alpha=0.7, label="Continuum")
+        for i in range(len(wl_conts)) :
+            plt.fill_between(x=wl[cont_masks[i]], y1=np.ones_like(flux[cont_masks[i]]), y2=np.zeros_like(flux[cont_masks[i]]), color= "darkgreen",alpha=0.2)
+
+        plt.legend(fontsize=16)
+        plt.xlabel(r"$\lambda$ [nm]", fontsize=22)
+        plt.ylabel(r"Flux", fontsize=22)
+        plt.xticks(fontsize=22)
+        plt.yticks(fontsize=22)
+        plt.show()
+    
+    if verbose :
+        print("{} index = {:.4f}".format(line_label,index_value))
+    
+    return index_value
+
+
+def activity_index_montecarlo(wl, flux, fluxerr, wl_lines=[656.28], delta_wl_lines=[0.15], wl_conts=[655.087,658.031], delta_wl_conts=[1.075,0.875], nsamples=1000, line_label="H$\alpha$", verbose=False, plot=False) :
+    
+    cont = np.full_like(wl, False, dtype=bool)
+    for i in range(len(wl_conts)) :
+        cont ^= (wl > wl_conts[i]-delta_wl_conts[i]/2) & (wl < wl_conts[i]+delta_wl_conts[i]/2)
+        
+    line = np.full_like(wl, False, dtype=bool)
+    for i in range(len(wl_lines)) :
+        line ^= (wl > wl_lines[i]-delta_wl_lines[i]/2) & (wl < wl_lines[i]+delta_wl_lines[i]/2)
+
+    flux_samples = []
+    for i in range(len(flux)) :
+        flux_samples.append(np.random.normal(flux[i], fluxerr[i], nsamples))
+    flux_samples = np.array(flux_samples, dtype=float)
+
+    index_samples = np.array([])
+    for s in range(nsamples) :
+
+        fluxline = np.nanmean(flux_samples[:,s][line])
+        fluxcont = np.nanmean(flux_samples[:,s][cont])
+
+        index_value = fluxline/fluxcont
+        
+        index_samples = np.append(index_samples, index_value)
+
+    index_percentiles = np.percentile(index_samples, [16, 50, 84], axis=0)
+    index_value = index_percentiles[1]
+    index_max_err = index_percentiles[2]-index_percentiles[1]
+    index_min_err = index_percentiles[1]-index_percentiles[0]
+    indexerr = (index_max_err + index_min_err) / 2
+
+    if verbose :
+        print("{} index = {0:.3f} + {1:.3f} - {2:.3f} ".format(line_label, index_value, index_max_err, index_min_err))
+              
+    if plot :
+        count, bins, ignored = plt.hist(index_samples, 30, density=True)
+        plt.plot(bins, 1/(indexerr * np.sqrt(2 * np.pi)) * np.exp( - (bins - index_value)**2 / (2 * indexerr**2) ), linewidth=2, color='r')
+        plt.xlabel(r"{} index".format(line_label), fontsize=22)
+        plt.ylabel(r"Probability density", fontsize=22)
+        plt.xticks(fontsize=22)
+        plt.yticks(fontsize=22)
+        plt.show()
+
+    return index_value, indexerr
+
+
+def activity_index_timeseries(wl, fluxes, fluxerrs, times, wl_lines=[656.28], delta_wl_lines=[0.15], wl_conts=[655.087,658.031], delta_wl_conts=[1.075,0.875], nsamples=1000, line_label="CaI", output="", ref_index_value=0, ref_index_err=0, verbose=False, plot=False) :
+
+    # Run the MC routine for all individual spectra to obtain the activity index time series
+    CaI, CaIerr = np.array([]), np.array([])
+    index_values, index_errs = np.array([]), np.array([])
+    
+    for i in range(len(fluxes)) :
+    
+        idx, eidx = activity_index_montecarlo(wl, fluxes[i], fluxerrs[i], wl_lines=wl_lines, delta_wl_lines=delta_wl_lines, wl_conts=wl_conts, delta_wl_conts=delta_wl_conts, nsamples=nsamples, line_label=line_label, verbose=False, plot=False)
+    
+        index_values = np.append(index_values,idx)
+        index_errs = np.append(index_errs,eidx)
+
+        if verbose :
+            print("Spectrum {}/{} -> BJD = {:.8f} {} index = {:.4f} +/- {:.4f}".format(i+1, len(fluxes), times[i], line_label, idx, eidx))
+
+    # Save s-index time series to output file
+    if output != "":
+        save_time_series(output, times-2400000., index_values, index_errs, xlabel="rjd", ylabel=line_label, yerrlabel="{}err".format(line_label), write_header_rows=True)
+
+    # Plot time series
+    if plot :
+        plt.errorbar(times-2400000., index_values, yerr=index_errs, fmt='o', color='k')
+        if ref_index_value and ref_index_err :
+            plt.hlines(ref_index_value, times[0]-2400000., times[-1]-2400000., ls="-", lw=3, color="darkgreen", label=r"Template {} index = {:.4f}$\pm${:.4f}".format(line_label, ref_index_value,ref_index_err))
+            plt.fill_between(x=times-2400000., y1=np.full_like(times-2400000.,ref_index_value+ref_index_err), y2=np.full_like(times-2400000.,ref_index_value-ref_index_err), color= "darkgreen",alpha= 0.3)
+
+        plt.xlabel(r"BJD-2400000", fontsize=20)
+        plt.ylabel(r"{} index".format(line_label), fontsize=20)
+        plt.xticks(fontsize=18)
+        plt.yticks(fontsize=18)
+        plt.legend(fontsize=18)
+        plt.show()
+
+
+    return times, index_values, index_errs
+
+
+def save_time_series(output, time, y, yerr, xlabel="x", ylabel="y", yerrlabel="yerr", write_header_rows=False) :
+    
+    outfile = open(output,"w+")
+    
+    if write_header_rows :
+        outfile.write("{}\t{}\t{}\n".format(xlabel,ylabel,yerrlabel))
+        outfile.write("---\t----\t-----\n")
+        
+    for i in range(len(time)) :
+        outfile.write("{:.10f}\t{:.5f}\t{:.5f}\n".format(time[i], y[i], yerr[i]))
+
+    outfile.close()
+
+
+def save_rv_time_series(output, bjd, rv, rverr, time_in_rjd=True, rv_in_mps=False) :
+    
+    outfile = open(output,"w+")
+    outfile.write("rjd\tvrad\tsvrad\n")
+    outfile.write("---\t----\t-----\n")
+    
+    for i in range(len(bjd)) :
+        if time_in_rjd :
+            rjd = bjd[i] - 2400000.
+        else :
+            rjd = bjd[i]
+        
+        if rv_in_mps :
+            outfile.write("{0:.10f}\t{1:.2f}\t{2:.2f}\n".format(rjd, 1000. * rv[i], 1000. * rverr[i]))
+        else :
+            outfile.write("{0:.10f}\t{1:.5f}\t{2:.5f}\n".format(rjd, rv[i], rverr[i]))
+
+    outfile.close()
+
+
+def write_spectra_times_series_to_fits(filename, wave, flux, fluxerr, times, fluxes, fluxerrs, header=None):
+    """
+        Description: function to save the spectrum to a fits file
+        """
+    
+    if header is None :
+        header = fits.Header()
+
+    header.set('TTYPE1', "WAVE")
+    header.set('TUNIT1', "NM")
+    header.set('TTYPE2', "FLUXES")
+    header.set('TUNIT2', "COUNTS")
+    header.set('TTYPE2', "FLUXERR")
+    header.set('TUNIT2', "COUNTS")
+
+    primary_hdu = fits.PrimaryHDU(header=header)
+    hdu_wl = fits.ImageHDU(data=wave, name="WAVE")
+    hdu_tmpflux = fits.ImageHDU(data=flux, name="TEMPLATE_FLUX")
+    hdu_tmpfluxerr = fits.ImageHDU(data=fluxerr, name="TEMPLATE_FLUXERR")
+
+    hdu_times = fits.ImageHDU(data=times, name="TIMES")
+    hdu_fluxes = fits.ImageHDU(data=fluxes, name="FLUXES")
+    hdu_fluxerrs = fits.ImageHDU(data=fluxerrs, name="FLUXERRS")
+
+    listofhuds = [primary_hdu, hdu_wl, hdu_tmpflux, hdu_tmpfluxerr, hdu_times, hdu_fluxes, hdu_fluxerrs]
+
+    mef_hdu = fits.HDUList(listofhuds)
+
+    mef_hdu.writeto(filename, overwrite=True)
+
+
+def read_template_product(filename) :
+
+    hdulist = fits.open(filename)
+
+    wave = hdulist["WAVE"].data
+    flux = hdulist["TEMPLATE_FLUX"].data
+    fluxerr = hdulist["TEMPLATE_FLUXERR"].data
+    times = hdulist["TIMES"].data
+    fluxes = hdulist["FLUXES"].data
+    fluxerrs = hdulist["FLUXERRS"].data
+
+    loc = {}
+    loc["wl"] = wave
+    loc["flux"] = flux
+    loc["fluxerr"] = fluxerr
+    loc["times"] = times
+    loc["fluxes"] = fluxes
+    loc["fluxerrs"] = fluxerrs
+
+    return loc
 
 def fit_continuum(wav, spec, function='polynomial', order=3, nit=5, rej_low=2.0,
     rej_high=2.5, grow=1, med_filt=0, percentile_low=0., percentile_high=100.,
@@ -477,70 +695,3 @@ def fit_continuum(wav, spec, function='polynomial', order=3, nit=5, rej_low=2.0,
         return coeff
     else :
         return cont
-
-
-def save_time_series(output, time, y, yerr, xlable="x", ylabel="y", yerrlabel="yerr", write_header_rows=False) :
-    
-    outfile = open(output,"w+")
-    
-    if write_header_rows :
-        outfile.write("{}\t{}\t{}\n".format(xlabel,ylabel,yerrlabel))
-        outfile.write("---\t----\t-----\n")
-        
-    for i in range(len(time)) :
-        outfile.write("{:.10f}\t{:.5f}\t{:.5f}\n".format(time[i], y[i], yerr[i]))
-
-    outfile.close()
-
-
-def write_spectra_times_series_to_fits(filename, wave, flux, fluxerr, times, fluxes, fluxerrs, header=None):
-    """
-        Description: function to save the spectrum to a fits file
-        """
-    
-    if header is None :
-        header = fits.Header()
-
-    header.set('TTYPE1', "WAVE")
-    header.set('TUNIT1', "NM")
-    header.set('TTYPE2', "FLUXES")
-    header.set('TUNIT2', "COUNTS")
-    header.set('TTYPE2', "FLUXERR")
-    header.set('TUNIT2', "COUNTS")
-
-    primary_hdu = fits.PrimaryHDU(header=header)
-    hdu_wl = fits.ImageHDU(data=wave, name="WAVE")
-    hdu_tmpflux = fits.ImageHDU(data=flux, name="TEMPLATE_FLUX")
-    hdu_tmpfluxerr = fits.ImageHDU(data=fluxerr, name="TEMPLATE_FLUXERR")
-
-    hdu_times = fits.ImageHDU(data=times, name="TIMES")
-    hdu_fluxes = fits.ImageHDU(data=fluxes, name="FLUXES")
-    hdu_fluxerrs = fits.ImageHDU(data=fluxerrs, name="FLUXERRS")
-
-    listofhuds = [primary_hdu, hdu_wl, hdu_tmpflux, hdu_tmpfluxerr, hdu_times, hdu_fluxes, hdu_fluxerrs]
-
-    mef_hdu = fits.HDUList(listofhuds)
-
-    mef_hdu.writeto(filename, overwrite=True)
-
-
-def read_template_product(filename) :
-
-    hdulist = fits.open(filename)
-
-    wave = hdulist["WAVE"].data
-    flux = hdulist["TEMPLATE_FLUX"].data
-    fluxerr = hdulist["TEMPLATE_FLUXERR"].data
-    times = hdulist["TIMES"].data
-    fluxes = hdulist["FLUXES"].data
-    fluxerrs = hdulist["FLUXERRS"].data
-
-    loc = {}
-    loc["wl"] = wave
-    loc["flux"] = flux
-    loc["fluxerr"] = fluxerr
-    loc["times"] = times
-    loc["fluxes"] = fluxes
-    loc["fluxerrs"] = fluxerrs
-
-    return loc

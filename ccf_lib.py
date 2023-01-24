@@ -12,7 +12,6 @@ import numpy as np
 import warnings
 import sys
 import os
-from scipy.interpolate import InterpolatedUnivariateSpline
 from scipy.optimize import curve_fit
 from scipy.stats import chisquare
 import matplotlib.pyplot as plt
@@ -20,7 +19,13 @@ from astropy.io.fits.verify import VerifyWarning
 import warnings
 from scipy import constants
 import glob
-NORDERS = 54
+
+from scipy.interpolate import InterpolatedUnivariateSpline as ius
+
+import reduc_lib
+from copy import deepcopy
+
+NORDERS = 39
 
 helpstr = """
 ----------------------------------------------------------------------------
@@ -226,11 +231,11 @@ def iuv_spline(x, y, **kwargs):
         pass
     else:
         # replace all NaN's with linear interpolation
-        badspline = InterpolatedUnivariateSpline(x[~nanmask], y[~nanmask],
+        badspline = ius(x[~nanmask], y[~nanmask],
                                                  k=1, ext=1)
         y[nanmask] = badspline(x[nanmask])
     # return spline
-    return InterpolatedUnivariateSpline(x, y, **kwargs)
+    return ius(x, y, **kwargs)
 
 
 def fit_ccf(rv, ccf, fit_type, verbose=False):
@@ -427,61 +432,6 @@ def fwhm(sigma=1.0):
     :return: 2 * sqrt(2 * log(2)) * sigma = 2.3548200450309493 * sigma
     """
     return 2 * np.sqrt(2 * np.log(2)) * sigma
-
-
-def fits2wave(file_or_header, npix=0):
-    info = """
-        Provide a fits header or a fits file
-        and get the corresponding wavelength
-        grid from the header.
-        
-        Usage :
-        wave = fits2wave(hdr)
-        or
-        wave = fits2wave('my_e2ds.fits')
-        
-        Output has the same size as the input
-        grid. This is derived from NAXIS
-        values in the header
-        """
-    
-    
-    # check that we have either a fits file or an astropy header
-    if type(file_or_header) == str:
-        hdr = fits.getheader(file_or_header)
-    elif str(type(file_or_header)) == "<class 'astropy.io.fits.header.Header'>":
-        hdr = file_or_header
-    else:
-        print()
-        print('~~~~ wrong type of input ~~~~')
-        print()
-        
-        print(info)
-        return []
-
-    # get the keys with the wavelength polynomials
-    wave_hdr = hdr['WAVE0*']
-    # concatenate into a numpy array
-    wave_poly = np.array([wave_hdr[i] for i in range(len(wave_hdr))])
-    
-    # get the number of orders
-    nord = hdr['WAVEORDN']
-    
-    # get the per-order wavelength solution
-    wave_poly = wave_poly.reshape(nord, len(wave_poly) // nord)
-    
-    # get the length of each order  if not provided (normally that's 4088 pix)
-    if npix == 0 :
-        if 'NAXIS1' in hdr.keys() :
-            npix = hdr['NAXIS1']
-        else :
-            npix = 4088
-
-    # project polynomial coefficiels
-    wavesol = [np.polyval(wave_poly[i][::-1],np.arange(npix)) for i in range(nord) ]
-    
-    # return wave grid
-    return np.array(wavesol)
 
 
 def ccf_calculation(p, wave, flux, blaze, targetrv, mask_centers, mask_weights,
@@ -757,109 +707,6 @@ def mean_ccf(p, props, targetrv, fit_type, normalize_ccfs=True, plot=False, verb
     return props
 
 
-def plot_individual_ccf(props, nbo):
-    # get the plot loop generator
-    generator = plotloop(range(nbo))
-    # loop around orders
-    for order_num in generator:
-        plt.close()
-        fig, frame = plt.subplots(ncols=1, nrows=1)
-        frame.plot(props['RV_CCF'], props['CCF'][order_num], color='b',
-                   marker='+', ls='None', label='data')
-        frame.plot(props['RV_CCF'], props['CCF_FIT'][order_num], color='r',)
-        rvorder = props['CCF_FIT_COEFFS'][order_num][1]
-        frame.set(title='Order {0}  RV = {1} km/s'.format(order_num, rvorder),
-                  xlabel='RV [km/s]', ylabel='CCF')
-        plt.show()
-        plt.close()
-
-
-def plot_mean_ccf(props):
-    plt.close()
-    fig, frame = plt.subplots(ncols=1, nrows=1)
-    frame.plot(props['RV_CCF'], props['MEAN_CCF'], color='b', marker='+',
-               ls='None')
-    frame.plot(props['RV_CCF'], props['MEAN_CCF_FIT'], color='r')
-    frame.set(title='Mean CCF   RV = {0} km/s'.format(props['MEAN_RV']),
-              xlabel='RV [km/s]', ylabel='CCF')
-    plt.show()
-    plt.close()
-
-
-def plotloop(looplist):
-    # check that looplist is a valid list
-    if not isinstance(looplist, list):
-        # noinspection PyBroadException
-        try:
-            looplist = list(looplist)
-        except Exception as _:
-            print('PLOT ERROR: looplist must be a list')
-    # define message to give to user
-    message = ('Plot loop navigation: Go to \n\t [P]revious plot '
-               '\n\t [N]ext plot \n\t [E]nd plotting '
-               '\n\t Number from [0 to {0}]: \t')
-    message = message.format(len(looplist) - 1)
-    # start the iterator at zero
-    it = 0
-    first = True
-    # loop around until we hit the length of the loop list
-    while it < len(looplist):
-        # deal with end of looplist
-        if it == len(looplist):
-            # break out of while
-            break
-        # if this is the first iteration do not print message
-        if first:
-            # yield the first iteration value
-            yield looplist[it]
-            # increase the iterator value
-            it += 1
-            first = False
-        # else we need to ask to go to previous, next or end
-        else:
-            # get user input
-            userinput = input(message)
-            # try to cast into a integer
-            # noinspection PyBroadException
-            try:
-                userinput = int(userinput)
-            except Exception as _:
-                userinput = str(userinput)
-            # if 'p' in user input we assume they want to go to previous
-            if 'P' in str(userinput).upper():
-                yield looplist[it - 1]
-                it -= 1
-            # if 'n' in user input we assume they want to go to next
-            elif 'N' in str(userinput).upper():
-                yield looplist[it + 1]
-                it += 1
-            elif isinstance(userinput, int):
-                it = userinput
-                # deal with it too low
-                if it < 0:
-                    it = 0
-                # deal with it too large
-                elif it >= len(looplist):
-                    it = len(looplist) - 1
-                # yield the value of it
-                yield looplist[it]
-            # else we assume the loop is over and we want to exit
-            else:
-                # break out of while
-                break
-
-
-def construct_out_ccf_filename(infile, maskname) :
-    # ----------------------------------------------------------------------
-    # construct out file name
-    inbasename = os.path.basename(infile).split('.')[0]
-    maskbasename = os.path.basename(maskname).split('.')[0]
-    inpath = os.path.dirname(infile)
-    outfile = 'CCFTABLE_{0}_{1}.fits'.format(inbasename, maskbasename)
-    outpath = os.path.join(inpath, outfile)
-    # ----------------------------------------------------------------------
-    return outpath
-
 
 def write_file(props, infile, maskname, header, wheader, rv_drifts, output="", verbose=False):
 
@@ -982,217 +829,6 @@ def write_file(props, infile, maskname, header, wheader, rv_drifts, output="", v
     props["MEAN_CCF"] = props['MEAN_CCF']
 
     return props
-
-
-# =============================================================================
-# main routine
-# =============================================================================
-def run_ccf_new(ccf_params, spectrum, rv_drifts, targetrv=0.0, valid_orders=None, normalize_ccfs=True, output=True, science_channel=True, plot=False, interactive_plot=False, verbose=False, merge_headers=False) :
-
-    warnings.simplefilter(action='ignore', category=FutureWarning)
-    warnings.simplefilter(action='ignore', category=RuntimeWarning)
-
-    # get input telluric corrected file and header
-    if science_channel :
-        image = np.array(spectrum["FluxAB"], dtype=float)
-        
-        spectrum["header1"]["AIRMASS"] = spectrum["header0"]["AIRMASS"]
-        
-        if merge_headers :
-            header = spectrum["header0"] + spectrum["header1"]
-        else :
-            header = spectrum["header0"]
-
-        if "SPEMSNR" not in header.keys() :
-            if "EXTSN035" in header.keys() :
-                header["SPEMSNR"] = header["EXTSN035"]
-            elif "SNR33" in header.keys() :
-                header["SPEMSNR"] = header["SNR33"]
-            else :
-                header["SPEMSNR"] = 1
-
-        blaze = np.array(spectrum["BlazeAB"], dtype=float)
-    else :
-        image = np.array(spectrum["FluxC"], dtype=float)
-        if merge_headers :
-            header = spectrum["header0"] + spectrum["headerC"]
-        else :
-            header = spectrum["headerC"]
-        blaze = np.array(spectrum["BlazeC"], dtype=float)
-
-    masktable = read_mask(ccf_params['MASK_FILE'], ccf_params['MASK_COLS'])
-    # get the dimensions
-    nbo, nbpix = image.shape
-
-    if "WAVEORDN" not in header.keys() :
-        header = make_wave_keywords(header)
-    #wave = fits2wave(header, npix=nbpix)
-    wheader = header
-    wave = np.array(spectrum["WaveAB"])
-
-    # --------------------------------------------------------------------------
-    # get fiber typoe
-    if 'FIBER' in header:
-        fiber = header['FIBER']
-    else:
-        if science_channel :
-            fiber = "AB"
-        else :
-            fiber = "C"
-        #raise ValueError('HEADER ERROR: FIBER MISSING')
-    # --------------------------------------------------------------------------
-    # get dprtype
-    #if 'DPRTYPE' in header:
-    if fiber == 'AB':
-        dprtype = "OBJ_FP".split('_')[0]
-    else:
-        dprtype = "OBJ_FP".split('_')[1]
-    #else:
-    #   raise ValueError('HEADER ERROR: DPRTYPE MISSING')
-    # make sure dprtype is correct for fiber
-    #   if dprtype not in ['OBJ', 'FP']:
-    #    raise ValueError('HEADER ERROR: DPRTPYE must be OBJ or FP')
-    # --------------------------------------------------------------------------
-    # get berv from header
-    if fiber == 'AB' and dprtype == 'OBJ':
-        berv = header['BERV']
-        # absorption features
-        fit_type = 0
-    else:
-        berv = 0.0
-        # emission features
-        fit_type = 1
-
-    #if berv == 'NaN     ':
-    #        berv = 0.
-
-    # --------------------------------------------------------------------------
-    # get rv from header (or set to zero)
-    if targetrv == 0. and ('OBJRV' in header) and dprtype == 'OBJ':
-        targetrv = header['OBJRV']
-        if np.isnan(targetrv) or targetrv == ccf_params["CCF_RV_NULL"]:
-            targetrv = 0.0
-
-    # --------------------------------------------------------------------------
-    # get mask centers, and weights
-    mask_orders = []
-    if "order_mask" in masktable :
-        mask_orders, mask_widths, mask_centers, mask_weights = get_mask(masktable, ccf_params["MASK_WIDTH"], ccf_params["MASK_MIN_WEIGHT"])
-    else :
-        _, mask_centers, mask_weights = get_mask(masktable, ccf_params["MASK_WIDTH"],
-                                                 ccf_params["MASK_MIN_WEIGHT"])
-    # --------------------------------------------------------------------------
-    # Photon noise uncertainty
-    # --------------------------------------------------------------------------
-    dkwargs = dict(spe=image, wave=wave, sigdet=ccf_params["NOISE_SIGDET"],
-                   size=ccf_params["NOISE_SIZE"], threshold=ccf_params["NOISE_THRES"])
-    # run DeltaVrms2D
-    dvrmsref, wmeanref = delta_v_rms_2d(**dkwargs)
-    wmsg = 'On fiber {0} estimated RV uncertainty on spectrum is {1:.3f}'
-    if verbose :
-        print(wmsg.format(fiber, wmeanref))
-
-    # Uncomment below to quickly check the input spectra to CCF routines
-    #for i in range(NORDERS) :
-    #    plt.plot(wave[i],image[i])
-    #plt.show()
-    # --------------------------------------------------------------------------
-    # Calculate the CCF
-    # --------------------------------------------------------------------------
-    if verbose :
-        print('\nRunning CCF calculation')
-    props = ccf_calculation(ccf_params, wave, image, blaze, targetrv, mask_centers,
-                            mask_weights, berv, fit_type, mask_orders=mask_orders)
-    # --------------------------------------------------------------------------
-    # Calculate the mean CCF
-    # --------------------------------------------------------------------------
-    if verbose :
-        print('\nRunning Mean CCF')
-    props = mean_ccf(ccf_params, props, targetrv, fit_type, valid_orders=valid_orders, normalize_ccfs=normalize_ccfs, plot=plot)
-
-    # --------------------------------------------------------------------------
-    # Plots
-    # --------------------------------------------------------------------------
-    if interactive_plot :
-        # plot individual CCFs
-        if verbose :
-            print('\n Plotting individual CCFs')
-        plot_individual_ccf(props, nbo)
-        # plot mean ccf and fit
-        if verbose :
-            print('\n Plotting Mean CCF')
-        plot_mean_ccf(props)
-
-    # --------------------------------------------------------------------------
-    # Save file
-    # --------------------------------------------------------------------------
-    props = write_file(props, spectrum['filename'], ccf_params['MASK_FILE'], header, wheader, rv_drifts, save=output, verbose=verbose)
-
-    return props
-
-
-def make_wave_keywords(header) :
-    """
-        Description: function to create WAVE_* keywords for wavelength calibration
-        as produced by previous versions of the DRS for backwards compatibility.
-        """
-    norders = header["TH_ORD_N"]
-    degpoly = header["TH_LL_D"]
-
-    header.set('WAVEORDN', norders, "nb orders in total")
-    header.set('WAVEDEGN', degpoly, "degree of wave polyn fit")
-    
-    ncount = 0
-    for order in range(norders) :
-        for coeff in range(degpoly+1) :
-            th_lc_key = "TH_LC{0}".format(ncount)
-            wave_key = "WAVE{0:04d}".format(ncount)
-            wave_comment = "Wavelength coefficients order={0} coeff={1}".format(order, coeff)
-            header.set(wave_key, header[th_lc_key], wave_comment)
-            ncount += 1
-    return header
-
-
-def select_best_ccf_mask(obj_temp, mask_repository) :
-    """
-        Description: function to select a CCF mask that best matches
-        a given temperature.
-        """
-
-    teff = {'GJ1002_neg_depth.mas': 2900,
-        'Gl905_neg_depth.mas': 2930,
-        'Gl725B_neg_depth.mas': 3106,
-        'Gl699_neg_depth.mas': 3224,
-        'Gl725A_neg_depth.mas': 3398,
-        'Gl412A_neg_depth.mas': 3549,
-        'Gl846_neg_depth.mas': 3880,
-        'HD189733_neg_depth.mas': 4870,
-        'TauBoo_neg_depth.mas': 6309}
-    
-    default_mask = mask_repository + 'Gl412A_neg_depth.mas'
-
-    pattern = mask_repository + '*.mas'
-
-    list_of_masks = sorted(glob.glob(pattern))
-
-    best_mask = default_mask
-    temp_diff = 1e20
-
-    for mask in list_of_masks :
-        
-        # get rid of full path before file name
-        mask_basename = os.path.basename(mask)
-
-        loc_teff_diff = np.abs(obj_temp - teff[mask_basename])
-
-        if loc_teff_diff < temp_diff :
-            temp_diff = loc_teff_diff
-            best_mask = mask
-
-    if temp_diff == 1e20 :
-        print("WARNING: Could not identify any suitable mask, returning default mask: {}".format(best_mask))
-
-    return best_mask
 
 
 def apply_weights_to_ccf_mask(ccf_params, wl, flux, fluxerr, weight, median=True, remove_lines_with_nans=True, source_rv=0., verbose=False, plot=False) :
@@ -1357,8 +993,6 @@ def run_ccf_eder(ccf_params, wave, fluxes, header, ccfmask, rv_drifts={}, filena
     # --------------------------------------------------------------------------
     # Save file
     # --------------------------------------------------------------------------
-    #if "WAVEORDN" not in header.keys() :
-    #    header = make_wave_keywords(header)
     wheader = header
 
     props = write_file(props, filename, ccf_params['MASK_FILE'], header, wheader, rv_drifts, output=output, verbose=verbose)
@@ -1366,7 +1000,359 @@ def run_ccf_eder(ccf_params, wave, fluxes, header, ccfmask, rv_drifts={}, filena
     return props
 
 # ==============================================================================
-# End of code
+# Start CCF analysis
 # ==============================================================================
+
+def plot_ccfs(template_ccf) :
+
+    rv = template_ccf["wl"]
+    tccf = template_ccf["flux"]
+    ccfs = template_ccf["flux_arr_sub"] * template_ccf["flux"]
+    residuals = template_ccf["flux_arr_sub"]
+    
+    nspc = len(template_ccf["flux_arr_sub"])
+    
+    fig,ax = plt.subplots(nrows = 2, ncols = 1, sharex=True)
+    
+    for i in range(nspc):
+        color = [i/nspc,1-i/nspc,1-i/nspc]
+        ax[0].plot(rv, tccf, color = "green", lw=2, label="median CCF")
+        ax[0].plot(rv, ccfs[i], color = color, alpha = 0.2)
+        ax[1].plot(rv, residuals[i], color = color,alpha = 0.2)
+    
+    ax[0].set(xlabel = 'Velocity [km/s]',ylabel = 'CCF depth', title = 'Mean CCFs')
+    ax[1].set(xlabel = 'Velocity [km/s]',ylabel = 'CCF residual depth', title = 'Residual CCFs')
+    plt.tight_layout()
+    #plt.legend()
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    
+    plt.show()
+
+
+def calculate_rv_shifts(template_ccf, rvshifts, velocity_window, plot=False, verbose=False) :
+
+    rvshifts_prev = deepcopy(rvshifts)
+
+    rv = template_ccf["wl"]
+    tccf = template_ccf["flux"]
+    ccfs = template_ccf["flux_arr_sub"] * template_ccf["flux"]
+    residuals = template_ccf["flux_arr_sub"]
+    nspc = len(template_ccf["flux_arr_sub"])
+
+    imin = np.argmin(tccf)
+    
+    if verbose :
+        print("RV min detected at {:.4f} km/s".format(rv[imin]))
+    
+    window = np.abs(rv - rv[imin]) < velocity_window
+
+    if verbose :
+        print("Window: min_rv = {:.4f} km/s  and max_rv = {:.4f} km/s".format(rv[window][0],rv[window][-1]))
+
+    corr_ccf = []
+    for i in range(nspc) :
+        spline = ius(rv, ccfs[i], ext=3, k=5)
+        corr_ccf.append(spline(rv[window]+rvshifts[i]))
+    corr_ccf = np.array(corr_ccf,dtype=float)
+    
+    deriv = np.gradient(tccf) / np.gradient(rv)
+    deriv = deriv[window]
+    deriv = deriv / np.nansum(deriv ** 2)
+    
+    per_ccf_rms = []
+
+    if plot :
+        plt.plot(rv, tccf, '-', lw=3, color="green")
+
+    # pix scale expressed in CCF pixels
+    #pix_scale = pixel_size_in_kps / np.nanmedian(np.gradient(rv))
+    pix_scale = 1.0
+    rvshifts_err = np.zeros_like(rvshifts)
+    
+    for i in range(nspc):
+        residu = corr_ccf[i] - tccf[window]
+        rms_resid = np.nanstd(residu)
+        per_ccf_rms.append(rms_resid)
+        
+        rvshift = np.nansum(residu*deriv)
+        rvshifts[i] -= rvshift
+        
+        # 1/dvrms -avoids division by zero
+        inv_dvrms = deriv/(rms_resid * np.sqrt(pix_scale))
+        rvshifts_err[i] = 1.0 / np.sqrt(np.nansum(inv_dvrms ** 2))
+
+        if plot :
+            plt.plot(rv[window]+rvshifts[i], corr_ccf[i])
+        if verbose :
+            print("Spectrum {} -> RV shift = {:.3f} m/s;  rms = {:.3f} m/s".format(i, rvshift*1000, rms_resid*1000))
+
+    if plot :
+        plt.show()
+
+    rms_rv = np.nanstd(rvshifts_prev - rvshifts)
+    if verbose :
+        print("Final RV rms = {:.3f} m/s".format(rms_rv*1000))
+    
+    return rvshifts, rvshifts_err, rms_rv
+    
+    
+def shift_ccf_data(rv, ccf_data, rvshifts, verbose=False) :
+
+    dv = np.nanmedian(np.abs(rv[1:] - rv[:-1]))
+
+    if verbose :
+        print("Velocity sampling: dv = {:.4f} km/s".format(dv))
+
+    nspc = len(rvshifts)
+    
+    min_rv, max_rv = -1e30,+1e30
+    for i in range(nspc) :
+        rel_rv = rv + rvshifts[i]
+        locmin, locmax = np.nanmin(rel_rv), np.nanmax(rel_rv)
+        
+        if locmin > min_rv :
+            min_rv = locmin
+        if locmax < max_rv :
+            max_rv = locmax
+
+    if verbose :
+        print("min_rv={:.4f} km/s, max_rv={:.4f} km/s".format(min_rv,max_rv))
+    
+    new_rv = []
+    irv = min_rv + dv
+    while irv < max_rv :
+        new_rv.append(irv)
+        irv+=dv
+    new_rv = np.array(new_rv, dtype=float)
+
+    new_ccf_data = []
+    for i in range(nspc) :
+        spline = ius(rv-rvshifts[i], ccf_data[i], ext=3, k=5)
+        new_ccf_data.append(spline(new_rv))
+    new_ccf_data = np.array(new_ccf_data,dtype=float)
+
+    return new_rv, new_ccf_data
+    
+    
+def ccf_analysis(rv, ccf_data, rvs, nsig_clip=0, velocity_window=10., maxiter=20, minimprov=1e-5, plot=False, verbose=False) :
+
+    source_rv = np.nanmedian(rvs)
+    
+    #rvshifts = rvs - source_rv
+    
+    rvshifts = np.zeros_like(rvs)
+    rvshiftvars = np.zeros_like(rvs)
+    
+    mod_rv, mod_ccf_data = deepcopy(rv), deepcopy(ccf_data)
+
+    prev_rms_rv = 0
+
+    for iter in range(maxiter) :
+
+        # apply first shift the CCF data
+        mod_rv, mod_ccf_data = shift_ccf_data(rv, ccf_data, rvshifts)
+    
+        # 1st pass - to build template from calibrated fluxes
+        template_ccf = reduc_lib.calculate_template(mod_ccf_data, wl=mod_rv, fit=True, median=True, subtract=True, sub_flux_base=0.0, min_npoints=10, verbose=False, plot=False)
+
+        # recover CCF data from template and residuals array
+        red_ccf_data = template_ccf["flux_arr_sub"] + template_ccf["flux"]
+
+        # 2nd pass - to build template from calibrated fluxes
+        template_ccf = reduc_lib.calculate_template(red_ccf_data, wl=mod_rv, fit=True, median=True, subtract=True, sub_flux_base=0.0, verbose=False, plot=False)
+
+        # apply sigma-clip using template and median dispersion in time as clipping criteria
+        if nsig_clip > 0 :
+            template_ccf = reduc_lib.sigma_clip(template_ccf, nsig=nsig_clip, interpolate=False, replace_by_model=False, sub_flux_base=0., plot=False)
+
+        # recover CCF data from template and residuals array
+        red_ccf_data = template_ccf["flux_arr_sub"] + template_ccf["flux"]
+
+        # 3rd pass - Calculate a final template combined by the mean
+        template_ccf = reduc_lib.calculate_template(red_ccf_data, wl=mod_rv, fit=True, median=False, subtract=False, sub_flux_base=1.0, verbose=False, plot=False)
+
+        # calculate new shifts
+        incr_rvshifts, rverrs, rms_rv = calculate_rv_shifts(template_ccf, np.zeros_like(rvshifts), velocity_window)
+
+        rvshifts += incr_rvshifts
+        rvshiftvars += rverrs*rverrs
+        # calculate improvement with respect to previous fit
+        improv = np.abs(prev_rms_rv - rms_rv)
+        
+        print("iter={} RV rms = {:.7f} m/s, an improvement of {:.7f} m/s ".format(iter, 1000*rms_rv, 1000*improv))
+
+        if improv < minimprov :
+            # plot final template product
+            if plot :
+                plot_ccfs(template_ccf)
+            rvs = source_rv + rvshifts
+            rverrs = np.sqrt(rvshiftvars)
+            break
+
+        #if np.abs(prev_rms_rv - rms_rv) < 1e-5
+        prev_rms_rv = rms_rv
+
+    return rvs, rverrs, template_ccf
+
+
+def bisector(rv, ccf,  low_high_cut = 0.1, bottom_range=[0.10,0.40], top_range=[0.55,0.85], figure_title = '', doplot = False, ccf_plot_file = '', showplot=False):
+    # use the props from the CCF determination code
+    # Could be per-order or with the mean
+    #rv = props['RV_CCF']
+    #ccf = props['MEAN_CCF']
+
+    # get minima
+    imin = int(np.argmin(ccf))
+    #print(imin,type(imin))
+
+    # get point where the derivative changes sign at the edge of the line
+    # the bisector is ambiguous passed this point
+    width_blue =  imin - np.max(np.where(np.gradient(ccf[:imin])>0))
+    #print(width_blue)
+    width_red = np.min(np.where(np.gradient(ccf[imin:])<0))
+    #print(width_red)
+
+    # get the width from the side of the center that reaches
+    # that point first
+    width = int(np.min([width_blue, width_red]))
+
+    # set depth to zero
+    ccf -= np.min(ccf)
+
+    # set continuum to one
+    ccf /= np.min( ccf[ [imin - width, imin + width] ])
+
+    # interpolate each side of the ccf slope at a range of depths
+    depth = np.arange(low_high_cut,1-low_high_cut,0.001)
+
+    # blue and red side of line
+    g1 = (ccf[imin:imin - width:-1]>low_high_cut) & (ccf[imin:imin - width:-1]<(1-low_high_cut))
+    spline1 = ius(ccf[imin:imin - width:-1][g1],rv[imin:imin - width:-1 ][g1], k=2)
+
+    g2 = (ccf[imin : imin + width]>low_high_cut) & (ccf[imin : imin + width]<(1-low_high_cut))
+    spline2 = ius(ccf[imin : imin + width][g2],rv[imin : imin + width][g2], k=2)
+
+    # get midpoint
+    bisector_position = (spline2(depth)+spline1(depth))/2
+
+    # get bisector width
+    width_ccf = (spline2(depth)-spline1(depth))
+
+    # mean 'top' CCF between 55 and 85% of depth
+    Vt = np.nanmean(bisector_position[(depth>top_range[0])*(depth<top_range[1])])
+    Vt_ERR = np.nanstd(bisector_position[(depth>top_range[0])*(depth<top_range[1])])
+    # mean 'bottom' CCF between 10% and 40% of depth
+    Vb = np.nanmean(bisector_position[(depth>bottom_range[0])*(depth<bottom_range[1])])
+    Vb_ERR = np.nanstd(bisector_position[(depth>bottom_range[0])*(depth<bottom_range[1])])
+
+    Vs = Vt - Vb
+    Vs_ERR = np.sqrt(Vt_ERR**2 + Vb_ERR**2)
+
+    if doplot:
+        # some nice plots
+        plt.plot(rv[imin - width : imin+ width],ccf[imin - width : imin+ width],"k-", label = 'ccf')
+        
+        bottom = (ccf[imin - width : imin+ width] > bottom_range[0]) & (ccf[imin - width : imin+ width] < bottom_range[1])
+        top = (ccf[imin - width : imin+ width] > top_range[0]) & (ccf[imin - width : imin+ width] < top_range[1])
+        
+        plt.plot(rv[imin - width : imin+ width][top],ccf[imin - width : imin+ width][top],".",color="darkblue",label='Top',zorder=2)
+        plt.plot(rv[imin - width : imin+ width][bottom],ccf[imin - width : imin+ width][bottom],".",color="brown",label='Bottom',zorder=2)
+        
+        plt.plot(bisector_position,depth,label = 'bisector')
+        plt.plot((bisector_position-np.mean(bisector_position))*100+np.mean(bisector_position),depth, label = 'bisector * 100')
+        
+        plt.legend()
+        plt.title(figure_title,fontsize=16)
+        plt.xlabel('Velocity (km/s)',fontsize=16)
+        plt.ylabel('Depth',fontsize=16)
+        plt.xticks(fontsize=16)
+        plt.yticks(fontsize=16)
+        if ccf_plot_file !='':
+            plt.savefig(ccf_plot_file)
+        if showplot :
+            plt.show()
+
+    # define depth in the same way as Perryman, 0 is top, 1 is bottom
+    return 1-depth, bisector_position, width_ccf, Vs, Vs_ERR
+
+
+def gauss(v,v0,ew,zp,amp):
+    # gaussian with a constant offset. As we know that the ccfs are negative structures, amp will be negative
+    return zp+amp*np.exp( -0.5*(v-v0)**2/ew**2)
+
+
+def ccf_fwhm_and_biss(template_ccf, velocity_window=0, use_tight_window=False, plot=False, verbose=False) :
+
+    rv = template_ccf["wl"]
+    tccf = template_ccf["flux"]
+    tccferr = template_ccf["fluxerr"]
+    ccfs = template_ccf["flux_arr_sub"] * template_ccf["flux"]
+    residuals = template_ccf["flux_arr_sub"]
+    nspc = len(template_ccf["flux_arr_sub"])
+            
+    imin = np.argmin(tccf)
+
+    if verbose :
+        print("RV min detected at {:.4f} km/s".format(rv[imin]))
+
+    depth, bis, width, bisspan, bisspan_err = bisector(rv, tccf, low_high_cut = 0.1, figure_title = 'CCF bisector analysis', doplot=plot, ccf_plot_file='', showplot=plot)
+
+    # initialize window mask considering full CCF
+    window = np.full_like(rv,True,dtype=bool)
+
+    if use_tight_window :
+        # get point where the derivative changes sign at the edge of the line
+        width_blue =  imin - np.max(np.where(np.gradient(tccf[:imin])>0))
+        width_red = np.min(np.where(np.gradient(tccf[imin:])<0))
+        # initialize window mask
+        window = np.full_like(rv,False,dtype=bool)
+        # Select data within the window
+        window[imin-width_blue:imin+width_red] = True
+    else :
+        if velocity_window :
+            window = np.abs(rv - rv[imin]) < velocity_window/2
+        pass
+    
+    tp0 = [rv[imin],1,1,-0.1]
+    tfit, tpcov = curve_fit(gauss, rv[window], tccf[window], p0 = tp0)
+    tfit_err = np.sqrt(np.diag(tpcov))
+
+    if plot :
+        plt.errorbar(rv[window], tccf[window], yerr=tccferr[window], fmt='o', color="green",zorder=1)
+        plt.plot(rv[window],gauss(rv[window],tfit[0],tfit[1],tfit[2],tfit[3]),'-',color="red",zorder=2)
+
+    fwhm, fwhmerr = [], []
+    bis, biserr = [], []
+
+    for i in range(nspc):
+        residu = ccfs[i][window] - tccf[window]
+        rms_resid = np.nanstd(residu)
+
+        _, _, _, bisspan, bisspan_err = bisector(rv, ccfs[i])
+
+        bis.append(bisspan)
+        biserr.append(bisspan_err)
+
+        p0 = deepcopy(tfit)
+        fit, pcov = curve_fit(gauss, rv[window], ccfs[i][window], p0 = p0)
+        fit_err = np.sqrt(np.diag(pcov))
+
+        if verbose :
+            print("Spectrum {} / {} -> gaussian fit: ".format(i+1,nspc))
+
+        fwhm.append(2*np.sqrt(2*np.log(2)) * fit[1])
+        fwhmerr.append(2*np.sqrt(2*np.log(2)) * fit_err[1])
+
+        if plot :
+            plt.plot(rv[window], ccfs[i][window], '-', alpha=0.3)
+
+    bis, biserr = np.array(bis), np.array(biserr)
+    fwhm, fwhmerr = np.array(fwhm), np.array(fwhmerr)
+    
+    if plot :
+        plt.show()
+    
+    return fwhm, fwhmerr, bis, biserr
 
 
