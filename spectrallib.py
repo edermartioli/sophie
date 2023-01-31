@@ -371,7 +371,7 @@ def activity_index_montecarlo(wl, flux, fluxerr, wl_lines=[656.28], delta_wl_lin
     indexerr = (index_max_err + index_min_err) / 2
 
     if verbose :
-        print("{} index = {0:.3f} + {1:.3f} - {2:.3f} ".format(line_label, index_value, index_max_err, index_min_err))
+        print("{} index = {:.4f} + {:.4f} - {:.4f} ".format(line_label, index_value, index_max_err, index_min_err))
               
     if plot :
         count, bins, ignored = plt.hist(index_samples, 30, density=True)
