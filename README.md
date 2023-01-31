@@ -1,13 +1,14 @@
 # SOPHIE Tools
-Toolkit to analyze e2ds or s1d spectra obtained with the SOPHIE instrument at OHP. 
 
-All the routines in this toolkit can be executed with the module `sophie_pipeline.py`. Here's an example to run the pipeline for a series of spectra obtained for the same object:
+Toolkit for analyzing e2ds or s1d spectra obtained with the SOPHIE instrument at OHP.
+
+All routines in this toolkit can be run with the sophie_pipeline.py module. Here is an example to run the pipeline for a series of spectra obtained for the same object:
 
 ```
 python sophie_pipeline.py --input=SOPHIE*e2ds_A.fits -v
 ```
 
-The command above will execute the following modules, where each module generates a given product, as explained below.
+The above command will execute the following modules, where each module generates a certain product, as explained below.
 
 ```
 * sophie_ccf_pipeline.py --> CCF radial velocity time series + time series of the bisector span and FWHM
@@ -20,7 +21,8 @@ The command above will execute the following modules, where each module generate
 * sophie_timeseries_analysis.py --> basic time series analysis of the data in the big table
 ```
 
-Below are some examples to run each of these routines individually:
+Below are some examples for running each of these routines individually:
+
 ```
 python $PATH/sophie_ccf_pipeline.py --input=SOPHIE*e2ds_A.fits --ccf_mask=$PATH/masks/G2_nm.mas --output_rv_file=$OBJECTID_sophie_ccfrv.rdb --output_bis_file=$OBJECTID_sophie_ccfbis.rdb --output_fwhm_file=$OBJECTID_sophie_ccffwhm.rdb  -p -v
 
