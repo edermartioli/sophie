@@ -1019,13 +1019,23 @@ def plot_ccfs(template_ccf) :
         ax[0].plot(rv, tccf, color = "green", lw=2, label="median CCF")
         ax[0].plot(rv, ccfs[i], color = color, alpha = 0.2)
         ax[1].plot(rv, residuals[i], color = color,alpha = 0.2)
-    
-    ax[0].set(xlabel = 'Velocity [km/s]',ylabel = 'CCF depth', title = 'Mean CCFs')
-    ax[1].set(xlabel = 'Velocity [km/s]',ylabel = 'CCF residual depth', title = 'Residual CCFs')
+
+    ax[0].set_title('Mean CCFs', fontsize=20)
+    ax[0].set_xlabel('Velocity [km/s]', fontsize=20)
+    ax[0].set_ylabel('CCF depth', fontsize=20)
+    ax[0].tick_params(axis='both', which='major', labelsize=16)
+    ax[0].tick_params(axis='both', which='minor', labelsize=12)
+
+    ax[1].set_title('Residual CCFs', fontsize=20)
+    ax[1].set_xlabel('Velocity [km/s]', fontsize=20)
+    ax[1].set_ylabel('CCF residual depth', fontsize=20)
+    ax[1].tick_params(axis='both', which='major', labelsize=16)
+    ax[1].tick_params(axis='both', which='minor', labelsize=12)
+
     plt.tight_layout()
     #plt.legend()
-    plt.xticks(fontsize=16)
-    plt.yticks(fontsize=16)
+#    plt.xticks(fontsize=16)
+#    plt.yticks(fontsize=16)
     
     plt.show()
 
@@ -1256,9 +1266,9 @@ def bisector(rv, ccf,  low_high_cut = 0.1, bottom_range=[0.10,0.40], top_range=[
         bottom = (ccf[imin - width : imin+ width] > bottom_range[0]) & (ccf[imin - width : imin+ width] < bottom_range[1])
         top = (ccf[imin - width : imin+ width] > top_range[0]) & (ccf[imin - width : imin+ width] < top_range[1])
         
-        plt.plot(rv[imin - width : imin+ width][top],ccf[imin - width : imin+ width][top],".",color="darkblue",label='Top',zorder=2)
-        plt.plot(rv[imin - width : imin+ width][bottom],ccf[imin - width : imin+ width][bottom],".",color="brown",label='Bottom',zorder=2)
-        
+        plt.plot(rv[imin - width : imin+ width][top],ccf[imin - width : imin+ width][top],"o",color="darkblue",label='Top',zorder=2)
+        plt.plot(rv[imin - width : imin+ width][bottom],ccf[imin - width : imin+ width][bottom],"o",color="brown",label='Bottom',zorder=2)
+
         plt.plot(bisector_position,depth,label = 'bisector')
         plt.plot((bisector_position-np.mean(bisector_position))*100+np.mean(bisector_position),depth, label = 'bisector * 100')
         

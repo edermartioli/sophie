@@ -46,6 +46,7 @@ specdata = ascii.read(options.input, data_start=1)
 bjd = np.array(specdata['bjd'])
 ns = len(bjd)
 
+"""
 #select_cols = ['snr','berv','airmass','vrad','biss','fwhm','sindex','H-alpha','NaI','CaI']
 select_cols = ['berv','vrad','biss','fwhm','sindex','H-alpha','NaI','CaI']
 
@@ -63,7 +64,7 @@ for i in range(ns) :
 samples = np.array(samples, dtype=float)
 
 #fig = marginals.corner(samples,labels=slabels,quantiles=[0.16, 0.5, 0.84])
-fig = corner.corner(samples, show_titles=True, labels = newlabels, plot_datapoints=True, quantiles=[0.16, 0.5, 0.84], truths=truths, labelsize=12, labelpad=2.0)
+fig = corner.corner(samples, show_titles=True, labels = labels, plot_datapoints=True, quantiles=[0.16, 0.5, 0.84], labelsize=12, labelpad=2.0)
 
 for ax in fig.get_axes():
     plt.setp(ax.get_xticklabels(), ha="left", rotation=45)
@@ -71,3 +72,4 @@ for ax in fig.get_axes():
     ax.tick_params(axis='both', labelsize=8)
 
 plt.show()
+"""

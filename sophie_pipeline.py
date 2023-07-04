@@ -92,7 +92,7 @@ if not os.path.exists(rv_file) or not os.path.exists(obslog_file) or not os.path
 ##### RUN template ##########
 #############################
 template_file = "{}_sophie_template.fits".format(object_name)
-command = 'python -W"ignore" {}sophie_template{}.py --input={} --rv_file={} --output={} {} {} -n'.format(sophie_dir, codesuffix, options.input, rv_file, template_file, plot_flag, verbose_flag)
+command = 'python -W"ignore" {}sophie_template{}.py --input={} --rv_file={} --output={} {} {}'.format(sophie_dir, codesuffix, options.input, rv_file, template_file, plot_flag, verbose_flag)
 print("Running: ",command)
 if not os.path.exists(template_file) or options.force_reduction :
     os.system(command)
@@ -115,6 +115,10 @@ print("Running: ",command)
 if not os.path.exists(halpha_file) or options.force_reduction :
     os.system(command)
 
+
+NaI_file, CaI_file = "", ""
+
+"""
 #############################
 ######## RUN Na I ########
 #############################
@@ -132,16 +136,32 @@ command = 'python -W"ignore" {0}sophie_CaI.py --input={1} --output={2} {3} {4}'.
 print("Running: ",command)
 if not os.path.exists(CaI_file) or options.force_reduction :
     os.system(command)
+"""
 
 ##################################
 ######## COMPILE PRODUCTS ########
 ##################################
 results_file = "{}_sophie_results.txt".format(object_name)
-command = 'python -W"ignore" {}sophie_compile_products.py --output_file={} --obslog_file={} --rv_file={} --bis_file={} --fwhm_file={} --sindex_file={} --halpha_file={} --nai_file={} --cai_file={} {} {}'.format(sophie_dir, results_file, obslog_file, rv_file, bis_file, fwhm_file, sindex_file, halpha_file, NaI_file, CaI_file, plot_flag, verbose_flag)
+dace_rdb_file = "{}_sophie_results.rdb".format(object_name)
+command = 'python -W"ignore" {}sophie_compile_products.py --output_file={} --output_dacerdb_file={} --obslog_file={} --rv_file={} --bis_file={} --fwhm_file={} --sindex_file={} --halpha_file={} --nai_file={} --cai_file={} {} {}'.format(sophie_dir, results_file, dace_rdb_file, obslog_file, rv_file, bis_file, fwhm_file, sindex_file, halpha_file, NaI_file, CaI_file, plot_flag, verbose_flag)
 print("Running: ",command)
-if not os.path.exists(results_file) or options.force_reduction :
+if not os.path.exists(results_file) or not os.path.exists(dace_rdb_file) or options.force_reduction :
     os.system(command)
 
+
+
+##################################
+######## LATEX Table ########
+##################################
+latex_table_file = "{}_sophie_results.tex".format(object_name)
+input_drs_table = "/Volumes/Samsung_T5/Science/{}/time-series/{}_spec_ts.txt".format(object_name,object_name)
+command = 'python -W"ignore" {}sophie_latex_table.py --input={} --input_drs_table={} --output_latex_file={}'.format(sophie_dir, results_file, input_drs_table, latex_table_file)
+print("Running: ",command)
+if not os.path.exists(latex_table_file) and os.path.exists(input_drs_table):
+    os.system(command)
+
+
+"""
 ##################################
 ####  TIME SERIES ANALYSIS #######
 ##################################
@@ -150,3 +170,4 @@ command = 'python -W"ignore" {}sophie_timeseries_analysis.py --input={} {} {}'.f
 print("Running: ",command)
 #if not os.path.exists(timeseries_file) or options.force_reduction :
 os.system(command)
+"""

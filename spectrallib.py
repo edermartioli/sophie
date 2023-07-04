@@ -28,6 +28,8 @@ from scipy import stats
 
 from astropy.io import fits
 
+from uncertainties import ufloat, umath
+
 from copy import deepcopy
 
 def spectral_errors_from_residuals(wl, residuals, max_delta_wl=0.2, halfbinsize=15, min_points_per_bin=3, use_mad=True) :
@@ -105,7 +107,7 @@ def angle_check(lamb,flux,lamv,deltalamcont):
     return x, y_pred, model.coef_
 
 
-def extract_spectral_feature(template, wlrange=[], cont_ranges=[], polyn_order=6, divide_by_deltamag=False, plot=False) :
+def extract_spectral_feature(template, wlrange=[], cont_ranges=[], normalize=True, polyn_order=6, divide_by_deltamag=False, plot=False) :
     
     wl = template["wl"]
     flux = template["flux"]
@@ -123,9 +125,11 @@ def extract_spectral_feature(template, wlrange=[], cont_ranges=[], polyn_order=6
     for r in cont_ranges :
         cont ^= (wl > r[0]) & (wl < r[-1])
 
-    coeffs = fit_continuum(wl[cont], flux[cont], function='polynomial', order=polyn_order, nit=5, rej_low=1., rej_high=4.0, grow=1, med_filt=1, percentile_low=0., percentile_high=100., min_points=100, xlabel="wavelength", ylabel="flux", return_polycoeffs=True, plot_fit=False, verbose=False)
+    continuum = np.ones_like(wl)
+    if normalize :
+        coeffs = fit_continuum(wl[cont], flux[cont], function='polynomial', order=polyn_order, nit=5, rej_low=1., rej_high=4.0, grow=1, med_filt=1, percentile_low=0., percentile_high=100., min_points=100, xlabel="wavelength", ylabel="flux", return_polycoeffs=True, plot_fit=False, verbose=False)
 
-    continuum = np.poly1d(coeffs)(wl)
+        continuum = np.poly1d(coeffs)(wl)
 
     if plot :
         #plt.errorbar(wl, flux, yerr=fluxerr, fmt='.', lw=0.3, alpha=0.3, zorder=1, label="template spectrum")
@@ -695,3 +699,451 @@ def fit_continuum(wav, spec, function='polynomial', order=3, nit=5, rej_low=2.0,
         return coeff
     else :
         return cont
+
+
+
+
+def calibrate_sindex_to_MW(sindex, sophiemode="HR") :
+
+    slope = ufloat(0.832,0.1)
+    intercept = ufloat(0.065,0.026)
+
+    Smw = (sindex - intercept) / slope
+
+    return Smw
+
+
+class SMW_RHK:
+
+    def __init__(self, ccfs="rutten", afc="middelkoop", rphot="noyes"):
+        """
+            Converting Mount-Wilson S-index into RHK index.
+      
+            The Mount-Wilson S-index is a measure of the emission-line cores
+            of the Ca II H and K lines at about 3933 A and 3968 A in two
+            narrow bands normalized by two adjacent continuum bands.
+      
+            The activity index RHK is closely related to the S-index. In
+            particular, it gives the emission in the narrow bands normalized
+            by the bolometric brightness of the star
+      
+            .. math::
+      
+                R_{HK} = \\frac{4\\pi R_s^2 (F_H + F_K)}{4\\pi R_s^2\\sigma T_{eff}^4} = \\frac{F_H+F_K}{\\sigma T_{eff}^4} \\; .
+      
+            The stellar surface flux in "arbitrary units" in the narrow
+            H and K bands (fH + fK) is related to the Mount-Wilson S-index
+            through the relation
+      
+            .. math::
+      
+            f_H + f_K = S C_{cf} T_{eff}^4 10^{-14} \\; ,
+      
+            where Ccf is a conversion factor, which can be parameterized in terms of
+            the B-V color and the luminosity class. The conversion between
+            arbitrary units and physical units, needed to derive the true surface
+            flux and the RHK index, has been derived by several authors
+            starting with Middelkoop 1982.
+            Their factor was also used by Noyes et al. 1984---in particular in their
+            appendix a, where is appears implicitly. Later, the value of the conversion
+            factor has been revised by several authors, e.g., Oranje 1983 and Rutten 1984,
+            who estimated a value about 70% larger than previously proposed. Hall et al.
+            2007 derive a value 40% larger than that of Middelkoop 1982 and provide
+            a thorough discussion on the differences between the individual approaches
+            and results given in the literature.
+            
+            Finally, the RHK index thus derived still covers a photospheric
+            contribution, which is always present and not related to the
+            chromosphere. To obtain the purely chromospheric, primed RHK index,
+            an estimate of the photospheric surface flux in the H and K pass-bands
+            has to be subtracted. For active stars, the photospheric correction
+            is usually quite irrelevant. For inactive, quiet stars, it can,
+            however, be important.
+            
+            The issue of the Mount-Wilson S-index conversion has been revisited
+            by Mittag et al. 2013, who provide an alternative conversion procedure
+            and revised photospheric corrections for various luminosity classes.
+      
+            .. note:: In the default configuration, the conversion of the S-index
+                    into RHK is identical to the relation stated by Noyes et al. 1984
+                    in their appendix (a)
+                
+                    .. math::
+                
+                        R_{HK} = 1.340 \\times 10^{-4} C_{cf} S
+                
+                where the factor 1.34e-4 is a combination of the conversion from
+                arbitrary to physical units, 1e-14, and the Stefan-Boltzmann
+                constant, in particular 1.34e-4 = 7.6e5*1e-14/5.67e-5. The Ccf factor
+                is, however, calculated according to Rutten 1984.
+      
+            The relations and coefficients used here are taken from the
+            following publications (and references therein):
+            - Middelkoop 1982, A&A 107, 31
+            - Oranje 1983, A&A 124, 43
+            - Noyes et al. 1984, A&A 279, 763
+            - Rutten 1984, A&A 130, 353
+            - Hall et al. 2007, AJ 133, 862
+            - Mittag et al. 2013, A&A 549, 117
+      
+            Parameters
+            ----------
+            ccfs : string, {rutten, noyes}, optional
+                Source of the conversion factor between S-index and RHK.
+            afc : string, {rutten, oranje, middelkoop, hall}, optional
+                Source of conversion factor between "arbitrary units"
+                and physical units of surface flux.
+            rphot : string, {noyes}
+                The source for the photospheric correction for the RHK
+                index.
+    """
+        if ccfs == "rutten":
+            self._log10ccf = self.log10ccfRutten
+        elif ccfs == "noyes":
+            self._log10ccf = self.log10ccfNoyes
+        else:
+            print("No such Ccf source: " + str(ccfs) + "Use 'rutten' or 'noyes'.")
+            exit()
+            #raise(PE.PyAValError("No such Ccf source: " + str(ccfs), \ solution="Use 'rutten' or 'noyes'."))
+        self._ccfs = ccfs
+        
+        if rphot == "noyes":
+            self._logrphot = self.logRphotNoyes
+        else:
+            print("No such source for the photospheric correction: " + str(rphot) + "Use 'noyes'.")
+            exit()
+            #raise(PE.PyAValError("No such source for the photospheric correction: " + str(rphot), solution="Use 'noyes'."))
+        self._rphots = rphot
+    
+        self._afc = afc
+        # The conversion factor from "arbitrary units" to physical units.
+        self._absCal = {"rutten":1.29e6, "oranje":1.21e6, "middelkoop": 7.6e5, "hall":1.07e6}
+        if not self._afc in self._absCal:
+            print("No such source for the conversion from arbitrary to physical units: " + str(self._afc) + "Use either of: " + ', '.join(self._absCal.keys()))
+            exit()
+            #raise(PE.PyAValError("No such source for the conversion from arbitrary to physical units: " + str(self._afc),solution="Use either of: " + ', '.join(self._absCal.keys()) ))
+    
+        from PyAstronomy.pyasl import _ic
+        if not _ic.check["quantities"]:
+            print("The 'quantities' package is not installed, which is required to use 'SMW_RHK'." + "SMW_RHK" + "Install quantities (https://pypi.python.org/pypi/quantities/0.10.1).")
+            exit()
+            #raise(PE.PyARequiredImport("The 'quantities' package is not installed, which is required to use 'SMW_RHK'.", where="SMW_RHK", solution="Install quantities (https://pypi.python.org/pypi/quantities/0.10.1)."))
+                                 
+        from PyAstronomy import constants as PC
+        self._pc = PC.PyAConstants()
+        self._pc.setSystem("cgs")
+  
+    def logRphotNoyes(self, bv, lc="ms"):
+        """
+        Photospheric contribution to surface flux in the H and K pass-bands.
+      
+        Relation given by Noyes et al. 1984.
+      
+        Parameters
+        ----------
+        bv : float
+            B-V color [mag]
+        lc : string, {ms, g}, optional
+            Luminosity class.
+      
+        Returns
+        -------
+        log10(Rphot) : float
+            Logarithm of the photospheric contribution.
+        """
+        if (bv < 0.44) or (bv > 0.82):
+            print("Noyes et al. 1984 give a validity range of 0.44 < B-V < 0.82 for the " + "photospheric correction. However, the authors use it for B-V > 0.82, " + "where it quickly decreases.")
+            #PE.warn(PE.PyAValError("Noyes et al. 1984 give a validity range of 0.44 < B-V < 0.82 for the " + "photospheric correction. However, the authors use it for B-V > 0.82, " + "where it quickly decreases."))
+        if lc != "ms":
+            print("Noyes et al. 1984 specify the photospheric correction only for main-sequence stars.")
+            #PE.warn(PE.PyAValError("Noyes et al. 1984 specify the photospheric correction only for main-sequence stars."))
+        rp = -4.898 + 1.918*bv**2 - 2.893*bv**3
+        return rp
+      
+    def log10ccfNoyes(self, bv, **kwargs):
+        """
+        Ccf conversion factor according to Noyes et al. 1984.
+      
+        Parameters
+        ----------
+        bv : float
+            The B-V color [mag].
+      
+        Returns
+        -------
+        log10(Ccf) : float
+            The logarithm of the conversion factor.
+        """
+        if ("lc" in kwargs) and (kwargs["lc"] != "ms"):
+            print("The Ccf conversion factor by Noyes et al. 1984 is only valid for main-sequence stars." + "Use the conversion factor by Rutten 1984 for giants.")
+            #PE.warn(PE.PyAValError("The Ccf conversion factor by Noyes et al. 1984 is only valid for main-sequence stars.",solution="Use the conversion factor by Rutten 1984 for giants."))
+        logccf = 1.13*bv**3 - 3.91*bv**2 + 2.84*bv - 0.47
+        if bv <= 0.63:
+            x = 0.63 - bv
+            dlogccf = 0.135*x - 0.814*x**2 + 6.03*x**3
+            logccf += dlogccf
+        return logccf
+    
+    def log10ccfRutten(self, bv, lc="ms"):
+        """
+        Ccf conversion factor from Rutten 1984 (Eqs. 10a and 10b).
+      
+        Parameters
+        ----------
+        bv : float
+            B - V color [mag].
+        lc : string, {ms, g}, optional
+            Specifies whether the relation for
+            main-sequence (ms) or giant (g) stars
+            shall be evaluated.
+      
+        Returns
+        -------
+        log10(Ccf) : float
+             The logarithm of the conversion factor.
+        """
+        if lc == "ms":
+            if (bv < 0.3) or (bv > 1.6):
+                print("B-V color out of range. Rutten 1984 states a validity range of 0.3 <= b-v <= 1.6 " + "for main-sequence stars. You specified: " + str(bv) + ".")
+                #PE.warn(PE.PyAValError("B-V color out of range. Rutten 1984 states a validity range of 0.3 <= b-v <= 1.6 " + "for main-sequence stars. You specified: " + str(bv) + "."))
+            logccf = 0.25*bv**3 - 1.33*bv**2 + 0.43*bv + 0.24
+        elif lc == "g":
+            if (bv < 0.3) or (bv > 1.7):
+                print("B-V color out of range. Rutten 1984 states a validity range of 0.3 <= b-v <= 1.7 " + "for giant stars. You specified: " + str(bv) + ".")
+                #PE.warn(PE.PyAValError("B-V color out of range. Rutten 1984 states a validity range of 0.3 <= b-v <= 1.7 " + "for giant stars. You specified: " + str(bv) + "."))
+            logccf = -0.066*bv**3 - 0.25*bv**2 - 0.49*bv + 0.45
+        else:
+            print("No such luminosity class: " + str(lc) + "Specify either 'ms' or 'g'.")
+            exit()
+            #raise(PE.PyAValError("No such luminosity class: " + str(lc), solution="Specify either 'ms' or 'g'."))
+        return logccf
+  
+    def FHFK(self, S, Teff, log10ccf):
+        """
+        Calculate the FH+FK flux in arbitrary units.
+      
+         Parameters
+        ----------
+        S : float
+            Mount-Wilson S-index.
+        Teff : float
+            The effective temperature [K].
+        log10ccf : float
+            The logarithm of the Ccf conversion factor.
+      
+        Returns
+        -------
+        FH + FK : float
+            The stellar surface flux in the H and K pass-bands
+            in arbitrary units (not erg/cm**2/s).
+        """
+        ccf = 10.0**log10ccf
+        fhfk = S * ccf * Teff**4 * 1e-14
+        return fhfk
+  
+    def SMWtoRHK(self, S, Teff, bv, lc="ms", verbose=False):
+        """
+        Convert Mount-Wilson S-index into R_HK.
+      
+        Parameters
+        ----------
+        S : float
+            Mount-Wilson S-index.
+        Teff : float
+            Effective temperature [K].
+        bv : float
+            B-V color [mag]
+        lc : String, {ms, g}, optional
+            Luminosity class; Main-sequence (ms) or giants (g)
+        verbose : boolean, optional
+            If True, the details of the calculation are printed
+            to stdout.
+      
+        Returns
+        -------
+        RHK prime : float
+            RHK parameter corrected for photospheric contribution. The primed
+            number measures the purely chromospheric emission.
+        RHK : float
+            RHK parameter without correction for photospheric contribution.
+        ccf : float
+            The Ccf conversion factor used.
+        fhfk : float
+            The FH+FK surface flux in arbitrary units.
+        fhfk (physical) : float
+            The FH+FK surface flux in physical units [erg/cm^2/s].
+        R_phot : float
+            Photospheric flux contribution used in translating RHK into
+            RHK prime.
+    """
+        # Get Ccf conversion factor
+        log10ccf = self._log10ccf(bv, lc=lc)
+        ccf = 10.0**log10ccf
+        # Get FH+FK
+        fhfk = self.FHFK(S, Teff, log10ccf)
+        # Convert arbitrary units to physical units
+        surfaceFlux = fhfk * self._absCal[self._afc]
+        # Get RHK (includes photospheric contribution)
+        rhk = surfaceFlux/(self._pc.sigma * Teff**4)
+        # Get the photospheric correction
+        logrphot = self._logrphot(bv, lc=lc)
+        # Correct RHK for photospheric contribution
+        rhkprime = rhk - 10.0**logrphot
+        if verbose:
+            print("Converting Mount-Wilson S-index to RHK")
+            print("  Source of photospheric correction: " + self._rphots)
+            print("  Source of Ccf conversion factor: " + self._ccfs)
+            print("  log10ccf = %6.3e, ccf = %6.3e" % (log10ccf, ccf))
+            print("  Surface flux in H and K pass-bands in arbitrary units: %6.3e" % (fhfk))
+            print("  Arbitrary unit to flux conversion factor: %6.3e" % (self._absCal[self._afc]) + " from source: " + self._afc)
+            print("  Surface flux in physical units [erg/cm^2/s]: %6.3e" % (surfaceFlux))
+            print("  R_HK (including photosphere): %6.3e" % (rhk))
+            print("  log10(R_HK) (including photosphere): %6.3e" % (np.log10(rhk)))
+            print("  Photospheric contribution (log10(R_phot)): %6.3e" % logrphot)
+            print("  R_HK prime (corrected for photospheric correction): %6.3e" % (rhkprime))
+            print("  log10(R_HK prime) (corrected for photospheric correction): %6.3e" % ((np.log10(rhkprime))))
+        return rhkprime, rhk, ccf, fhfk, surfaceFlux, 10.0**logrphot
+
+
+    def montecarlo_SMWtoRHK(self, S, Teff, bv, nsamples=1000, lc="ms", verbose=False, plot=False):
+        """
+        Convert Mount-Wilson S-index into R_HK.
+      
+        Parameters
+        ----------
+        S : ufloat
+            Mount-Wilson S-index.
+        Teff : ufloat
+            Effective temperature [K].
+        bv : ufloat
+            B-V color [mag]
+        lc : String, {ms, g}, optional
+            Luminosity class; Main-sequence (ms) or giants (g)
+        verbose : boolean, optional
+            If True, the details of the calculation are printed
+            to stdout.
+        verbose : boolean, optional
+            If True, plot posterior distribution
+        Returns
+        -------
+        log10(RHK prime) : ufloat
+            log of RHK parameter corrected for photospheric contribution. The primed
+            number measures the purely chromospheric emission.
+        """
+    
+        sindex_samples = np.random.normal(S.nominal_value, S.std_dev, nsamples)
+        teff_samples = np.random.normal(Teff.nominal_value, Teff.std_dev, nsamples)
+        bv_samples  = np.random.normal(bv.nominal_value, bv.std_dev, nsamples)
+
+        logrhkprime_samples = []
+        for i in range(nsamples) :
+            rhkprime, rhk, ccf, fhfk, surfaceFlux, logrphot = self.SMWtoRHK(sindex_samples[i], teff_samples[i], bv_samples[i], lc=lc, verbose=False)
+            logrhkprime = np.log10(rhkprime)
+            if np.isfinite(logrhkprime) :
+                logrhkprime_samples.append(logrhkprime)
+        logrhkprime_samples = np.array(logrhkprime_samples)
+        
+        logrhkprime_percentiles = np.percentile(logrhkprime_samples, [16, 50, 84], axis=0)
+        logrhkprime = logrhkprime_percentiles[1]
+        logrhkprime_max_err = logrhkprime_percentiles[2]-logrhkprime_percentiles[1]
+        logrhkprime_min_err = logrhkprime_percentiles[1]-logrhkprime_percentiles[0]
+        logrhkprimeerr = (logrhkprime_max_err + logrhkprime_min_err) / 2
+
+        if verbose :
+            print("log(R'HK) = {0:.3f} + {1:.3f} - {2:.3f} ".format(logrhkprime, logrhkprime_max_err, logrhkprime_min_err))
+              
+        if plot :
+            count, bins, ignored = plt.hist(logrhkprime_samples, 30, density=True)
+            plt.plot(bins, 1/(logrhkprimeerr * np.sqrt(2 * np.pi)) * np.exp( - (bins - logrhkprime)**2 / (2 * logrhkprime**2) ), linewidth=2, color='r')
+            plt.xlabel(r"log(R'HK)", fontsize=22)
+            plt.ylabel(r"Probability density", fontsize=22)
+            plt.xticks(fontsize=22)
+            plt.yticks(fontsize=22)
+            plt.show()
+            
+        return ufloat(logrhkprime,logrhkprimeerr)
+
+
+#-------------------------------------
+# Diego's codes:
+
+def MH08(logrlhk, ind_bv):
+    #calibration from Mamajek & Hillenbrand 2008
+    print(10*'#')
+    print('calibration from Mamajek & Hillenbrand 2008')
+    
+    sigma=0.2
+    t1 = 10**(-38.053 - 17.912*logrlhk - 1.6675*(logrlhk**2) - 9)
+    et1 = t1-10**(-sigma-38.053 - 17.912*logrlhk - 1.6675*(logrlhk**2) - 9)
+    Et1 = 10**(sigma+-38.053 - 17.912*logrlhk - 1.6675*(logrlhk**2) - 9)-t1
+
+    x_cor = 1.-ind_bv
+    
+    tau = 10**(1.362-0.166*x_cor + 0.025*(x_cor**2)-5.323*(x_cor**3))
+    if x_cor < 0 :
+        tau = 10**(1.362-0.14*x_cor)
+    
+    n = 0.566
+    a = 0.407
+    b = 0.325
+    c = 0.495
+    d = 0.808
+    e = 2.966
+    f = 4.52
+    
+    if logrlhk > -4.3 :
+        d = 0.233
+        e = 0.689
+        f = 4.23
+        
+    F = a*((ind_bv-c)**b)
+    Ro = d - e*(logrlhk+f)
+    P = tau*Ro
+    t2 = (((P/F)**(1/n))*10**6)/10**9
+    et2 = t2*(1-10**(-sigma))
+    Et2 = t2*(10**(+sigma)-1)
+
+    #print P,round((10**t1)/10**9,1),round(t2,1),cor,rhk
+    print("Prot = %.2f [d]"%np.round(P,2))
+    print("tau = %.2f [d]"%np.round(tau,2))
+    print("Rossby = %.2f"%Ro)
+    print("t[logR'HK] = %.1f (-%.1f;+%.1f) [Gyr]"%(t1,et1,Et1))
+    print("t[logR'HK,(B-V)] = %.1f (-%.1f;+%.1f) [Gyr]"%(t2,et2,Et2))
+    return P, t1, t2
+
+def MW(S,c):
+    logCcf = 1.13*c**3 - 3.91*c**2 + 2.84*c - 0.47
+    Rphot = 10**(-4.898+1.918*c**2-2.893*c**3)
+    RHK = (10**logCcf)*1.340*10**(-4)*S
+    RLHK = RHK-Rphot
+    RLHK = RLHK
+    logRLHK=np.log10(RLHK)
+    return logRLHK
+
+def LO18(S,teff):
+    print(10*'#')
+    print('calibration from Lorenzo-Oliveira et al. 2018')
+    sigma=0.1
+    #calibration from Lorenzo-Oliveira et al. 2018
+    Rphot = (10**(-4.78845 -3.70700/((1. + (teff/4598.92)**(17.5272)))))
+    logCcf= -1.70*(10**(-7))*teff**2 + 2.25*(10**(-3))*teff - 7.31
+    RHK = 1.34*(10**(-4))*(10**logCcf)*S
+    xx = np.log10((RHK - Rphot))
+    tt=10**(-9+ 0.0534 -1.92*xx)
+    ett=tt-10**(-sigma-9+ 0.0534 -1.92*xx)
+    Ett=10**(+sigma-9+ 0.0534 -1.92*xx)-tt
+
+    print("logR'HK(Teff) = %.3f"%(xx))
+    print("t[logR'HK(Teff)] = %.1f (-%.1f;+%.1f) [Gyr]"%(tt,ett,Ett))
+
+def LO16(logrlhk, mass, feh):
+    #calibration from Lorenzo-Oliveira et al. 2016
+  print(10*'#')
+  print('calibration from Lorenzo-Oliveira et al. 2016')
+
+  sigma=0.14
+  t = 10**(-56.01 -25.81*logrlhk -0.44*feh -1.26*np.log10(mass) -2.53*logrlhk**2 - 9)
+  et = t- 10**(-sigma -56.01 -25.81*logrlhk -0.44*feh -1.26*np.log10(mass) -2.53*logrlhk**2 - 9)
+  Et = 10**(sigma+ -56.01 -25.81*logrlhk -0.44*feh -1.26*np.log10(mass) -2.53*logrlhk**2 - 9) - t
+  print("t[logR'HK,Mass,[Fe/H]]=",np.round(t,1),'-',np.round(et,1),'+',np.round(Et,1),'[Gyr]')
+#-------------------------------------

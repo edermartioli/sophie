@@ -28,9 +28,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import ascii
 from astropy.table import Table, hstack
+from copy import deepcopy
 
 parser = OptionParser()
 parser.add_option("-o", "--output_file", dest="output_file", help="Output file name",type='string',default="")
+parser.add_option("-d", "--output_dacerdb_file", dest="output_dacerdb_file", help="Output DACE rdb file name",type='string',default="")
 parser.add_option("-l", "--obslog_file", dest="obslog_file", help="Input observation log file",type='string',default="")
 parser.add_option("-r", "--rv_file", dest="rv_file", help="Input RV file (rdb format)",type='string',default="")
 parser.add_option("-b", "--bis_file", dest="bis_file", help="Input bisector file (rdb format)",type='string',default="")
@@ -108,10 +110,63 @@ if options.cai_file != "" :
     del cai['rjd']
     bigtable.append(cai)
 
-if options.output_file != "" :
-    outbigtable = hstack(bigtable)
-    print(outbigtable)
-    outbigtable.write(options.output_file, format='ascii', overwrite=True)
-    #ascii.write(outbigtable, options.output_file, format='csv', overwrite=True)
-    #ascii.write(outbigtable, options.output_file, format='latex', overwrite=True)
 
+outbigtable = hstack(bigtable)
+#print(outbigtable)
+
+if options.output_file != "" :
+    outbigtable.write(options.output_file, format="ascii", overwrite=True)
+
+if options.output_dacerdb_file != "" and os.path.exists(options.output_file) :
+
+    #    dace_product = "{}.rdb".format(options.output_file.split(".")[0])
+    dace_product = options.output_dacerdb_file
+
+    results = ascii.read(options.output_file, data_start=1)
+
+    dacetbl = Table()
+    # results possible columns:
+    #file object bjd snr exptime berv airmass vrad svrad biss bisserr fwhm fwhmerr sindex sindexerr H-alpha H-alphaerr NaI NaIerr CaI CaIerr
+    # DACE mandatory columns
+    # rjd    vrad    svrad
+    dacetbl['rjd'] = results['bjd'] - 2400000
+    dacetbl['vrad'] = results['vrad']
+    dacetbl['svrad'] = results['svrad']
+
+    # DACE acceptable columns
+    #fwhm    sig_fwhm    contrast     sig_contrast    bis_span    sig_bis_span     s_mw  sig_s     ha    sig_ha    na    sig_na    ca    sig_ca
+    #rhk    sig_rhk    sn_caii    prot_m08    sig_prot_m08    prot_n84    sig_prot_n84    berv ccf_noise    drift_noise    cal_therror    cal_thfile
+    if 'fwhm' in results.colnames :
+        dacetbl['fwhm'] = results['fwhm']
+    if 'fwhmerr' in results.colnames :
+        dacetbl['sig_fwhm'] = results['fwhmerr']
+
+    if 'biss' in results.colnames :
+        dacetbl['bis_span'] = results['biss']
+    if 'bisserr' in results.colnames :
+        dacetbl['sig_bis_span'] = results['bisserr']
+
+    if 'berv' in results.colnames :
+        dacetbl['berv'] = results['berv']
+        
+    if 'sindex' in results.colnames :
+        dacetbl['s_mw'] = results['sindex']
+    if 'sindexerr' in results.colnames :
+        dacetbl['sig_s'] = results['sindexerr']
+
+    if 'H-alpha' in results.colnames :
+        dacetbl['ha'] = results['H-alpha']
+    if 'H-alphaerr' in results.colnames :
+        dacetbl['sig_ha'] = results['H-alphaerr']
+
+    if 'NaI' in results.colnames :
+        dacetbl['na'] = results['NaI']
+    if 'NaIerr' in results.colnames :
+        dacetbl['sig_na'] = results['NaIerr']
+
+    if 'CaI' in results.colnames :
+        dacetbl['ca'] = results['CaI']
+    if 'CaIerr' in results.colnames :
+        dacetbl['sig_ca'] = results['CaIerr']
+
+    dacetbl.write(dace_product, format='ascii', overwrite=True)

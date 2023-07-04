@@ -84,3 +84,4 @@ template_halpha, template_halphaerr = spectrallib.activity_index_montecarlo(wl, 
 
 # Run the MC routine for all individual spectra to obtain the time series
 times, halpha, halphaerr = spectrallib.activity_index_timeseries(wl, fluxes, fluxerrs, template["times"], wl_lines=wl_lines, delta_wl_lines=delta_wl_lines, wl_conts=wl_conts, delta_wl_conts=delta_wl_conts, nsamples=1000, line_label=line_label, output=options.output, ref_index_value=template_halpha, ref_index_err=template_halphaerr, verbose=options.verbose, plot=options.plot)
+
