@@ -11,8 +11,8 @@
     
     Simple usage example:
     
-    python /Volumes/Samsung_T5/Science/sophie/sophie_halpha.py --input=TOI-2141_template.fits -pv
-    python /Volumes/Samsung_T5/Science/sophie/sophie_halpha.py --input=TOI-1736_template.fits -pv
+    python /Volumes/Samsung_T5/Science/sophie/sophie_halpha.py --input=TOI-2141_sophie_template.fits -pv
+    python /Volumes/Samsung_T5/Science/sophie/sophie_halpha.py --input=TOI-1736_sophie_template.fits -pv
 
     """
 
@@ -68,13 +68,13 @@ wl, flux, fluxerr, fluxes, fluxerrs = spectrallib.extract_spectral_feature(templ
 ##################################
 line_label="H-alpha"
 
-wl_lines = [656.28]
-delta_wl_lines = [0.150]
+wl_lines = [656.2808]
+delta_wl_lines = [0.160]
 
-#wl_conts = [654.875,657.785]
-#delta_wl_conts = [0.44,0.28]
-wl_conts=[660.5]
-delta_wl_conts=[2.0]
+wl_conts = [653.950,658.021]
+delta_wl_conts = [0.875,0.875]
+#wl_conts=[660.5]
+#delta_wl_conts=[2.0]
 
 # run the routine to estimate the feature index from the template spectrum and to generate some nice plots
 template_halpha = spectrallib.activity_index(wl, flux, wl_lines=wl_lines, delta_wl_lines=delta_wl_lines, wl_conts=wl_conts, delta_wl_conts=delta_wl_conts, line_label=line_label, verbose=options.verbose, plot=options.plot)
